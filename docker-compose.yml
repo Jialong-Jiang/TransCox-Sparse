@@ -1,0 +1,27 @@
+version: '3.8'
+
+services:
+  transcox-sparse:
+    build: .
+    container_name: transcox-sparse
+    volumes:
+      - ./data:/app/data
+      - ./results:/app/results
+    environment:
+      - R_LIBS_USER=/usr/local/lib/R/site-library
+    ports:
+      - "3838:3838"  # 如果使用 Shiny
+    restart: unless-stopped
+    
+  # 可选：添加 RStudio Server
+  rstudio:
+    image: rocker/rstudio:4.3.0
+    container_name: transcox-rstudio
+    environment:
+      - PASSWORD=transcox123
+      - ROOT=TRUE
+    volumes:
+      - ./:/home/rstudio/transcox
+    ports:
+      - "8787:8787"
+    restart: unless-stopped

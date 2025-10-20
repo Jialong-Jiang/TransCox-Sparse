@@ -1,162 +1,209 @@
 
-# TransCox
-How to improve the survival inference for one dataset if you have a larger cohort to borrow information from? Here, we provide transfer learning-based Cox Proportional Hazards model (**TransCox**). Our method considers two data sources, a target dataset and a source dataset. The idea is to borrow information adaptively from the source dataset to improve the inference for the target data. The tuning parameter to control the information borrowing between the two data sets is selected through a grid search with BIC.  
+# TransCox-Sparse: 高维稀疏生存分析的迁移学习R包
 
-## Setting up your python environment
-The package was built mainly in R with calling a solver from Python. Before installing the package, please make sure you have installed an appropriate Python environment. Here we recommend create a virtual environment in Conda:
+[![R](https://img.shields.io/badge/R-%3E%3D3.6.0-blue.svg)](https://www.r-project.org/)
+[![Python](https://img.shields.io/badge/Python-3.7%2B-blue.svg)](https://www.python.org/)
+[![TensorFlow](https://img.shields.io/badge/TensorFlow-2.10.0-orange.svg)](https://tensorflow.org/)
 
-```
-conda create -n TransCoxEnvi
-```
-Now let's install the required Python packages:
+## 📖 简介
 
-```
-conda install tensorflow-probability==0.8
-conda install tensorflow==2.1.0
-```
-In R, please install required packages including reticulate and survival:
+TransCox-Sparse是TransCox包的增强版本，专门为高维稀疏生存分析设计。它通过迁移学习技术，利用源域（辅助）数据来改善目标域（主要）数据的Cox回归模型性能，特别适用于高维数据（p >> n）的特征选择和稀疏建模。
 
-```
-install.packages("reticulate")
-install.packages("survival")
-```
-Now, please set your python environment in R and make sure R can identify the correct python packages that you just installed.
+### 🌟 主要特性
 
+- **🔄 迁移学习**: 从源域数据中学习知识来改善目标域模型
+- **📊 高维数据支持**: 处理特征数远大于样本数的情况（p >> n）
+- **✨ 稀疏性建模**: 通过L1正则化和软阈值化实现特征选择
+- **🤖 自动调参**: 基于BIC的超参数自动选择
+- **🔙 向后兼容**: 完全兼容原始TransCox功能
+- **⚡ 高效优化**: 基于TensorFlow的梯度优化算法
+
+## 🚀 快速开始
+
+### 环境要求
+
+- R >= 3.6.0
+- Python >= 3.7
+- TensorFlow 2.10.0
+
+### 安装步骤
+
+1. **Python环境配置**
+```bash
+# 创建conda环境
+conda create -n TransCoxEnvi python=3.8
+conda activate TransCoxEnvi
+
+# 安装必要包
+conda install tensorflow=2.10.0
+conda install numpy pandas
 ```
+
+2. **R环境配置**
+```r
+# 安装必要的R包
+install.packages(c("survival", "glmnet", "Matrix", "reticulate"))
+
+# 配置Python环境
 library(reticulate)
-## modify this to your directory
-use_python("/Users/zli16/opt/anaconda3/envs/tf/bin/python") 
 use_condaenv("TransCoxEnvi")
 ```
-Let's test if you can load your python packages from R:
 
-```
-tf <- import("tensorflow")
-py_run_string("print(tf.__version__)")
-py_run_string("xi = tf.Variable(np.repeat([0.], repeats = 100), dtype = 'float64')")
+3. **下载和使用**
+```r
+# 克隆仓库
+git clone https://github.com/yourusername/TransCox-Sparse.git
+cd TransCox-Sparse
+
+# 设置工作目录并加载函数
+setwd("path/to/TransCox-Sparse")
+source("R/runTransCox_Sparse.R")
+source_python("inst/python/TransCoxFunction_Sparse.py")
 ```
 
-If your R cannot find the python environment, another way that works well for me is to create a .Renviron file in the home directory and put the location of your conda-environment python in this file:
+## 📋 使用示例
 
-```
-RETICULATE_PYTHON="/Users/zli16/opt/anaconda3/envs/TransCoxEnvi/bin/python"
-```
-After you do this, re-start R to let R find the correct python to use. And then re-test if your R can find the python packages. Setting up the python environment can be frustrating. I totally understand...
+### 基础使用
 
-## Install the TransCox package
-Now let's install the TransCox package in R from Github:
-
-```
-# if you need to install devtools package
-install.packages("devtools")
-library(devtools)
-install_github("ziyili20/TransCox")
-```
-I haven't figure out a way to automatically load the python function, let's do it manually by
-
-```
+```r
+# 加载必要库
+library(survival)
+library(Matrix)
 library(reticulate)
-source_python(system.file("python", "TransCoxFunction.py", package = "TransCox"))
-```
-This step shouldn't give any error if the python environment has been set up successfully. 
 
-## Illustrate the usage using a simulation dataset
+# 高维稀疏数据分析
+result <- runTransCox_Sparse(
+    primData = your_target_data,
+    auxData = your_source_data,
+    cov = paste0("X", 1:500),  # 500个特征
+    statusvar = "status",
+    lambda_beta = 0.05,        # 稀疏性控制
+    auto_tune = TRUE,          # 自动调参
+    verbose = TRUE
+)
 
-Our simulation dataset has 200 samples from the target data and 500 samples from the source data. There are two covariates: X1 and X2. 
-
-```
-library(TransCox)
-onedata <- GenSimData(nprim = 200,
-                      naux = 500,
-                      setting = 1)
-pData = onedata$primData
-aData = onedata$auxData
-Cout <- GetAuxSurv(aData, cov = c("X1", "X2"))
-Pout <- GetPrimaryParam(pData, q = Cout$q, estR = Cout$estR)
-```
-
-We select the best learning rate and number of steps using BIC:
-
-```
-LRres <- SelLR_By_BIC(primData = onedata$primData,
-             auxData = onedata$auxData,
-             cov = c("X1", "X2"),
-             statusvar = "status", lambda1 = 0.1, lambda2 = 0.1,
-             learning_rate_vec = c(0.001, 0.002, 0.003, 0.004, 0.005),
-             nsteps_vec = c(100, 200))
-```
-My LRres look like this
-
-```
-LRres
-$best_lr
-[1] 0.004
-
-$best_nsteps
-[1] 200
-
-$BICmat
-           100      200
-0.001 2503.008 2491.930
-0.002 2492.187 2485.108
-0.003 2489.549 2483.712
-0.004 2484.411 2483.446
-0.005 2490.987 2483.649
+# 查看稀疏性结果
+nonzero_coef <- sum(abs(result$new_beta) > 1e-8)
+sparsity <- (1 - nonzero_coef / length(result$new_beta)) * 100
+cat("稀疏度:", round(sparsity, 1), "%\n")
 ```
 
-Here we select the best tuning parameter using BIC. This step may take 2-3 minutes. If it takes too long, you can reduce the potential values in `lambda1_vec` and `lambda2_vec` to decrease the searching time. 
+### 自动参数调优
 
-```
-BICres <- SelParam_By_BIC(primData = onedata$primData,
-                auxData = onedata$auxData,
-                cov = c("X1", "X2"),
-                statusvar = "status",
-                lambda1_vec = c(0.1, 0.5, seq(1, 10, by = 0.5)),
-                lambda2_vec = c(0.1, 0.5, seq(1, 10, by = 0.5)),
-                learning_rate = 0.004, nsteps = 200)
-```
-
-Now we can run TransCox function in our data:
-
-```
-Tres <- runTransCox_one(Pout, l1 = BICres$best_la1, l2 = BICres$best_la2, 
-                        learning_rate = 0.004, nsteps = 200, cov = c("X1", "X2"))
+```r
+# 完全自动化分析
+result_auto <- runTransCox_Sparse(
+    primData = primData,
+    auxData = auxData,
+    cov = feature_names,
+    lambda1 = NULL,      # 自动选择
+    lambda2 = NULL,      # 自动选择
+    lambda_beta = NULL,  # 自动选择
+    auto_tune = TRUE
+)
 ```
 
-Take a look at the output from the function:
+## 📊 超参数指南
+
+### 稀疏性控制参数 `lambda_beta`
+
+| 稀疏度目标 | 推荐值 | 适用场景 |
+|------------|--------|----------|
+| 0% (无稀疏) | 0 | 标准TransCox |
+| 10-30% | 0.01-0.03 | 轻度特征选择 |
+| 30-60% | 0.05-0.08 | 中度特征选择 |
+| 60-90% | 0.1-0.15 | 强特征选择 |
+| >90% | 0.2+ | 极度稀疏 |
+
+### 数据类型推荐参数
+
+| 数据类型 | 特征数 | lambda1 | lambda2 | lambda_beta | learning_rate |
+|----------|--------|---------|---------|-------------|---------------|
+| 低维 | p < 50 | 0.1 | 0.1 | 0.01 | 0.004 |
+| 中维 | 50 ≤ p ≤ 500 | 0.05 | 0.05 | 0.05 | 0.002 |
+| 高维 | p > 500 | 0.01 | 0.01 | 0.1 | 0.001 |
+
+## 📁 项目结构
 
 ```
-> lapply(Tres, head, 2)
-$eta
-[1]  0.07593853 -0.15498716
-
-$xi
-[1]  0.00162907 -0.01151908
-
-$new_beta
-[1] -0.6571349  0.3119838
-
-$new_IntH
-[1] 0.005916450 0.005984873
-
-$time
-[1] 0.06477683 0.10978123
+TransCox-Sparse/
+├── R/                          # R函数
+│   ├── runTransCox_Sparse.R   # 主要接口函数
+│   ├── SelParam_By_BIC_Sparse.R # 稀疏参数选择
+│   └── GetAuxSurv_Sparse.R    # 稀疏源域分析
+├── inst/python/               # Python优化引擎
+│   ├── TransCoxFunction.py    # 原始优化函数
+│   └── TransCoxFunction_Sparse.py # 稀疏优化函数
+├── tests/                     # 测试文件
+│   ├── test_sparse_effect.R   # 稀疏效果测试
+│   └── test_integration.R     # 集成测试
+├── TransCox_用户手册.md       # 详细用户手册
+└── README.md                  # 本文件
 ```
-`new_beta` is the estimated beta parameter from the Cox PH model with transfer learning from the source dataset. 
 
-We can further estimate the estimation variation using bootstrap. In this illustration, I set the number of bootstraps (`nbootstrap`) as 10 to make it fast. Please change it to 200 or even 1000 to provide more reliable variance estimations. 
+## 🔬 算法原理
+
+### 稀疏性实现
+
+1. **L1正则化**: 对最终系数β_t施加L1惩罚
+2. **软阈值化**: 在每次梯度更新后应用软阈值操作
+3. **自适应阈值**: 根据λ_beta动态调整阈值强度
+
+### 优化目标
 
 ```
-BTres <- runBtsp_transCox(aData,
-                          pData,
-                          Tres = Tres,
-                          BestLam1 = 0.1,
-                          BestLam2 = 0.1,
-                          learning_rate = 0.002,
-                          nsteps = 200,
-                          nbootstrap = 10,
-                          Hrange = seq(0.15, 2, length.out = 50),
-                          trueBeta = c(-0.5, 0.5),
-                          cov = c("X1", "X2"))
+L(β) = -log-likelihood + λ₁||η||₁ + λ₂||ξ||₁ + λ_β||β_t||₁
 ```
-You can find the standard error estimation from the output with the name `BTres$beta_SE_btsp`. 
+
+其中：
+- η: 系数变化项
+- ξ: 风险变化项  
+- β_t: 最终回归系数
+
+## 📚 文档
+
+- [详细用户手册](TransCox_用户手册.md) - 完整的使用指南和最佳实践
+- [原始TransCox论文](https://link-to-paper) - 理论基础
+- [API文档](man/) - 函数参考
+
+## 🧪 测试
+
+```r
+# 运行稀疏效果测试
+source("tests/test_sparse_effect.R")
+
+# 运行完整集成测试
+source("tests/test_integration.R")
+```
+
+## 🤝 贡献
+
+欢迎提交Issue和Pull Request！
+
+### 开发环境设置
+
+1. Fork本仓库
+2. 创建特性分支: `git checkout -b feature/your-feature`
+3. 提交更改: `git commit -am 'Add some feature'`
+4. 推送分支: `git push origin feature/your-feature`
+5. 提交Pull Request
+
+## 📄 许可证
+
+本项目采用 [MIT License](LICENSE)
+
+## 📞 联系
+
+如有问题或建议，请：
+- 提交 [Issue](https://github.com/yourusername/TransCox-Sparse/issues)
+- 发送邮件至: your.email@example.com
+
+## 🙏 致谢
+
+- 原始TransCox包的开发者
+- TensorFlow和R社区
+- 所有贡献者和用户
+
+---
+
+**⭐ 如果这个项目对您有帮助，请给我们一个Star！**

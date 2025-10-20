@@ -1,0 +1,63 @@
+# R包开发相关
+.Rproj.user/
+.Rhistory
+.RData
+.Ruserdata
+*.Rproj
+
+# Python环境相关
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# 系统文件
+.DS_Store
+Thumbs.db
+*.tmp
+*.temp
+
+# IDE相关
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# 日志文件
+*.log
+
+# 测试输出
+tests/testthat/
+tests/*.Rout
+tests/*.Rout.save
+
+# 构建输出
+*.tar.gz
+*.zip
+
+# 临时文件和缓存
+.cache/
+*.cache
+
+# 个人配置文件（包含路径信息）
+setup_environment.R
+test_env.R
+
+# 大型数据文件（如果有的话）
+*.RData
+data/*.RData
+
+# 文档构建输出
+docs/
+doc/
+Meta/
+
+# 包检查输出
+*.Rcheck/
