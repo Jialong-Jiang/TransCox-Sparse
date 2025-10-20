@@ -8,6 +8,7 @@
 ## 📖 简介
 
 TransCox-Sparse是TransCox包的增强版本，专门为高维稀疏生存分析设计。它通过迁移学习技术，利用源域（辅助）数据来改善目标域（主要）数据的Cox回归模型性能，特别适用于高维数据（p >> n）的特征选择和稀疏建模。
+项目初衷是由于发现TransCox本身并不能很好的处理高维稀疏情况问题，由于本人技术不精，绝大多数代码均为AI辅助编写。
 
 ### 🌟 主要特性
 
@@ -195,8 +196,8 @@ source("tests/test_integration.R")
 ## 📞 联系
 
 如有问题或建议，请：
-- 提交 [Issue](https://github.com/yourusername/TransCox-Sparse/issues)
-- 发送邮件至: your.email@example.com
+- 提交 [Issue](https://github.com/Jialong-Jiang/TransCox-Sparse/issues)
+- 发送邮件至: 2672159435@qq.com
 
 ## 🙏 致谢
 
