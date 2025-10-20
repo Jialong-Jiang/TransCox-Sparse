@@ -27,7 +27,7 @@ TransCox-Sparse是TransCox包的增强版本，专门为高维稀疏生存分析
 - Python >= 3.7
 - TensorFlow 2.10.0
 
-### 安装步骤
+### 安装步骤 优先参考官方文档：[TransCox GitHub Repository](https://github.com/ziyili20/TransCox)
 
 1. **Python环境配置**
 ```bash
@@ -53,7 +53,7 @@ use_condaenv("TransCoxEnvi")
 3. **下载和使用**
 ```r
 # 克隆仓库
-git clone https://github.com/yourusername/TransCox-Sparse.git
+git clone https://github.com/Jialong-Jiang/TransCox-Sparse.git
 cd TransCox-Sparse
 
 # 设置工作目录并加载函数
