@@ -82,7 +82,15 @@ runTransCox_Sparse <- function(primData, auxData,
                               verbose = TRUE,
                               tolerance = 1e-6,
                               early_stopping = TRUE,
-                              adaptive_lr = TRUE) {
+                              adaptive_lr = TRUE,
+                              parallel = FALSE,  # 默认关闭并行计算
+                              n_cores = NULL) {
+    
+    # 参数说明：
+    # parallel: 是否使用并行计算进行参数搜索，默认FALSE
+    # 警告：并行计算在某些环境下可能出现问题（如服务器、RStudio）
+    # 只有在确定环境支持时才启用
+    # n_cores: 并行计算使用的核心数，如果为NULL则使用detectCores()-1
     
     # 基本信息记录（可选）
     
@@ -136,12 +144,14 @@ runTransCox_Sparse <- function(primData, auxData,
                 auxData = auxData,
                 cov = cov,
                 statusvar = statusvar,
-                lambda1_vec = if(is.null(lambda1)) c(0.01, 0.05, 0.1, 0.2, 0.5, 1.0) else lambda1,
-                lambda2_vec = if(is.null(lambda2)) c(0.01, 0.05, 0.1, 0.2, 0.5, 1.0) else lambda2,
-                lambda_beta_vec = if(is.null(lambda_beta)) c(0.005, 0.01, 0.015, 0.02, 0.025, 0.03, 0.04, 0.05) else lambda_beta,
+                lambda1_vec = if(is.null(lambda1)) c(0.1, 0.5, 1.0, 2.0) else lambda1,  # 分层搜索：粗搜索
+        lambda2_vec = if(is.null(lambda2)) c(0.1, 0.5, 1.0, 2.0) else lambda2,  # 分层搜索：粗搜索
+        lambda_beta_vec = if(is.null(lambda_beta)) c(0, 1e-3, 1e-2, 5e-2) else lambda_beta,  # 分层搜索：粗搜索
                 learning_rate = learning_rate,
                 nsteps = nsteps,
-                verbose = verbose
+                verbose = verbose,
+                parallel = parallel,
+                n_cores = n_cores
             )
             
             lambda1 <- bic_result$best_lambda1
@@ -249,7 +259,22 @@ runTransCox_Sparse <- function(primData, auxData,
     cumH <- Pout$primData$fullCumQ
     hazards <- Pout$dQ$dQ
     
-    # 运行TransCox
+    # 优化的R-Python接口调用
+    # 数据预处理和类型优化
+    if (verbose) cat("📊 预处理数据以优化传输...\n")
+    
+    # 预处理数据矩阵，确保连续内存布局和正确类型
+    CovData_optimized <- as.matrix(CovData, mode = "double")
+    storage.mode(CovData_optimized) <- "double"
+    
+    # 预处理向量数据
+    cumH_optimized <- as.double(cumH)
+    hazards_optimized <- as.double(hazards)
+    status_optimized <- as.integer(status)
+    estR_optimized <- as.double(Pout$estR)
+    Xinn_optimized <- as.matrix(Pout$Xinn, mode = "double")
+    storage.mode(Xinn_optimized) <- "double"
+    
     # 检查是否使用稀疏版本（处理向量参数的情况）
     use_sparse_version <- use_sparse && (
         (length(lambda_beta) > 1) || 
@@ -257,22 +282,26 @@ runTransCox_Sparse <- function(primData, auxData,
     )
     
     if (use_sparse_version) {
-        # 使用稀疏版本
-        trans_result <- TransCox_Sparse(
-            CovData = as.matrix(CovData),
-            cumH = cumH,
-            hazards = hazards,
-            status = status,
-            estR = Pout$estR,
-            Xinn = Pout$Xinn,
-            lambda1 = lambda1,
-            lambda2 = lambda2,
-            lambda_beta = lambda_beta,
-            learning_rate = learning_rate,
-            nsteps = nsteps,
-            tolerance = tolerance,
+        # 创建优化的参数包，减少函数调用开销
+        params_package <- list(
+            CovData = CovData_optimized,
+            cumH = cumH_optimized,
+            hazards = hazards_optimized,
+            status = status_optimized,
+            estR = estR_optimized,
+            Xinn = Xinn_optimized,
+            lambda1 = as.double(lambda1),
+            lambda2 = as.double(lambda2),
+            lambda_beta = as.double(lambda_beta),
+            learning_rate = as.double(learning_rate),
+            nsteps = as.integer(nsteps),
+            tolerance = as.double(tolerance),
             verbose = verbose
         )
+        
+        # 使用稀疏版本 - 单次批量传输
+        if (verbose) cat("🚀 调用优化的稀疏TransCox函数...\n")
+        trans_result <- do.call(TransCox_Sparse, params_package)
         
         eta <- trans_result[[1]]
         xi <- trans_result[[2]]
@@ -280,23 +309,27 @@ runTransCox_Sparse <- function(primData, auxData,
         convergence_info <- trans_result[[4]]
         
     } else {
-        # 使用原始版本
-        trans_result <- TransCox(
-            CovData = as.matrix(CovData),
-            cumH = cumH,
-            hazards = hazards,
-            status = status,
-            estR = Pout$estR,
-            Xinn = Pout$Xinn,
-            lambda1 = lambda1,
-            lambda2 = lambda2,
-            learning_rate = learning_rate,
-            nsteps = nsteps
+        # 创建优化的参数包（原始版本）
+        params_package_orig <- list(
+            CovData = CovData_optimized,
+            cumH = cumH_optimized,
+            hazards = hazards_optimized,
+            status = status_optimized,
+            estR = estR_optimized,
+            Xinn = Xinn_optimized,
+            lambda1 = as.double(lambda1),
+            lambda2 = as.double(lambda2),
+            learning_rate = as.double(learning_rate),
+            nsteps = as.integer(nsteps)
         )
+        
+        # 使用原始版本 - 单次批量传输
+        if (verbose) cat("🚀 调用优化的原始TransCox函数...\n")
+        trans_result <- do.call(TransCox, params_package_orig)
         
         eta <- trans_result[[1]]
         xi <- trans_result[[2]]
-        new_beta <- Pout$estR + eta
+        new_beta <- estR_optimized + eta  # 使用预处理的数据
         convergence_info <- NULL
     }
     

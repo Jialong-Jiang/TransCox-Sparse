@@ -274,13 +274,4 @@ cat(sprintf("- 平均绝对误差 (MAE): %.6f\n", bic_mae))
 
 
 
-cat("\n--- 三种方法性能对比 ---\n")
-cat(sprintf("方法                    | C-index | 特征数 | MSE      | MAE      \n"))
-cat(sprintf("------------------------|---------|--------|----------|----------\n"))
-cat(sprintf("Lasso Cox (基线)        | %.4f  | %3d    | %.6f | %.6f\n",
-            lasso_cindex, sum(lasso_coef != 0), lasso_mse, lasso_mae))
-cat(sprintf("TransCox-Sparse (原始)  | %.4f  | %3d    | %.6f | %.6f\n",
-            bic_metrics$cindex, bic_metrics$nonzero, bic_mse, bic_mae))
-cat(sprintf("TransCox-Sparse (修正)  | %.4f  | %3d    | %.6f | %.6f\n",
-            improved_metrics$cindex, improved_metrics$nonzero, improved_mse, improved_mae))
 

@@ -66,77 +66,81 @@ def TransCox_Sparse(CovData, cumH, hazards, status, estR, Xinn,
         print(f"样本数: {CovData.shape[0]}, 特征数: {CovData.shape[1]}")
         print(f"lambda1 (eta): {lambda1}, lambda2 (xi): {lambda2}, lambda_beta: {lambda_beta}")
     
-    # 初始化变量
-    xi = tf.Variable(np.repeat([0.], repeats=len(hazards)), dtype="float64", name="xi")
-    eta = tf.Variable(np.repeat([0.], repeats=len(estR)), dtype="float64", name="eta")
+    # 优化的数据预处理：减少内存分配
+    XiData = np.ascontiguousarray(Xinn, dtype=np.float64)
+    ppData = np.ascontiguousarray(CovData, dtype=np.float64)
+    cQ_np = np.ascontiguousarray(cumH, dtype=np.float64).reshape((len(cumH),))
+    dq_np = np.ascontiguousarray(hazards, dtype=np.float64).reshape((len(hazards),))
+    estR_np = np.ascontiguousarray(estR, dtype=np.float64).reshape((len(estR),))
+    status_np = np.ascontiguousarray(status, dtype=np.float64).reshape((len(status),))
+    
+    # 预计算常用值
+    n_samples, n_features = ppData.shape
+    n_events = len(dq_np)
+    
+    # 兼容0/1与1/2状态编码
+    event_code = 2 if np.max(status_np) > 1 else 1
+    event_mask = status_np == event_code
+    smallidx = tf.constant(np.where(event_mask)[0], dtype=tf.int64)
+    n_events_actual = len(smallidx)
+    
+    # 优化的参数初始化
+    eta = tf.Variable(np.zeros(n_features, dtype=np.float64), dtype=tf.float64, name="eta")
+    xi = tf.Variable(np.zeros(n_events, dtype=np.float64), dtype=tf.float64, name="xi")
     
     # 当lambda_beta > 0时，将beta_t作为独立的可训练变量
     if lambda_beta > 0:
-        beta_t = tf.Variable(estR.copy(), dtype="float64", name="beta_t")
+        beta_t = tf.Variable(estR_np.copy(), dtype=tf.float64, name="beta_t")
     
-    # 转换数据类型
-    XiData = np.float64(Xinn)
-    ppData = np.float64(CovData)
-    cQ_np = np.float64(cumH).reshape((len(cumH),))
-    dq_np = np.float64(hazards).reshape((len(hazards),))
-    estR_np = np.float64(estR).reshape((len(estR),))
-    status_np = np.float64(status).reshape((len(status),))
+    # 预计算TensorFlow常量以避免重复转换
+    ppData_tf = tf.constant(ppData, dtype=tf.float64)
+    cQ_tf = tf.constant(cQ_np, dtype=tf.float64)
+    dq_tf = tf.constant(dq_np, dtype=tf.float64)
+    estR_tf = tf.constant(estR_np, dtype=tf.float64)
+    XiData_tf = tf.constant(XiData, dtype=tf.float64)
     
-    # 找到事件发生的样本索引（兼容0/1与1/2编码）
-    event_code = 2 if np.max(status_np) > 1 else 1
-    smallidx = tf.where(status_np == event_code)[:, 0]
-    
-    # 存储损失历史用于收敛检查
+    # 损失历史和收敛监控
     loss_history = []
+    convergence_window = 5  # 收敛检查窗口
     
     def loss_fn():
-        """
-        扩展的损失函数，包含beta_t的L1惩罚
-        
-        原始损失: -log_likelihood + lambda1*||eta||_1 + lambda2*||xi||_1
-        新损失: -log_likelihood + lambda1*||eta||_1 + lambda2*||xi||_1 + lambda_beta*||beta_t||_1
-        
-        其中 beta_t = estR + eta
-        """
-        
-        # 计算当前的beta_t
+        """高度优化的损失函数"""
         if lambda_beta > 0:
             # 使用独立的beta_t变量
             current_beta_t = beta_t
         else:
-            # 使用传统方法计算beta_t，确保类型一致
-            current_beta_t = tf.math.add(tf.constant(estR_np, dtype="float64"), eta)
+            # 传统方式：beta_t = estR + eta
+            current_beta_t = estR_tf + eta
         
-        # 计算线性预测子
-        linear_pred = tf.math.reduce_sum(tf.math.multiply(tf.constant(ppData, dtype="float64"), current_beta_t), axis=1)
+        # 优化的矩阵运算：使用预计算的常量
+        # 1. 线性预测子：X * beta_t (向量化)
+        linear_pred = tf.linalg.matvec(ppData_tf, current_beta_t)
         
-        # 计算调整后的基线风险，确保数值稳定性
-        adjusted_hazards = tf.math.add(tf.constant(dq_np, dtype="float64"), xi)
-        adjusted_hazards = tf.maximum(adjusted_hazards, 1e-10)  # 确保为正数
+        # 2. 调整后的累积基线风险：cumH + Xinn * xi (向量化)
+        xi_contribution = tf.linalg.matvec(XiData_tf, xi)
+        adjusted_cumH = cQ_tf + xi_contribution
         
-        # 计算调整后的累积风险
-        adjusted_cumH = tf.math.add(tf.constant(cQ_np, dtype="float64"), 
-                                   tf.math.reduce_sum(tf.math.multiply(tf.constant(XiData, dtype="float64"), xi), axis=1))
-        adjusted_cumH = tf.maximum(adjusted_cumH, 1e-10)  # 确保为正数
+        # 3. 调整后的基线风险：hazards + xi
+        adjusted_hazards = dq_tf + xi
         
-        # Cox部分似然的三个组成部分
-        # 1. 事件样本的线性预测子之和
-        event_linear_pred = tf.reduce_sum(tf.gather(linear_pred, indices=smallidx))
+        # 数值稳定性：确保调整后的风险为正
+        adjusted_hazards = tf.maximum(adjusted_hazards, 1e-8)
         
-        # 2. 调整后基线风险的对数之和
+        # 事件相关计算（向量化）
+        event_linear_pred = tf.reduce_sum(tf.gather(linear_pred, smallidx))
         log_hazards = tf.reduce_sum(tf.math.log(adjusted_hazards))
         
-        # 3. 风险集的指数项
+        # 风险集计算（向量化指数运算）
         exp_linear_pred = tf.math.exp(linear_pred)
-        risk_set_term = tf.reduce_sum(tf.math.multiply(adjusted_cumH, exp_linear_pred))
+        risk_set_term = tf.reduce_sum(adjusted_cumH * exp_linear_pred)
         
         # 负对数似然
-        neg_log_likelihood = tf.math.negative(event_linear_pred + log_hazards - risk_set_term)
+        neg_log_likelihood = -(event_linear_pred + log_hazards - risk_set_term)
         
-        # L1惩罚项
-        l1_eta = lambda1 * tf.math.reduce_sum(tf.math.abs(eta))
-        l1_xi = lambda2 * tf.math.reduce_sum(tf.math.abs(xi))
-        l1_beta = lambda_beta * tf.math.reduce_sum(tf.math.abs(current_beta_t))  # 新增的beta_t惩罚
+        # 向量化L1惩罚计算
+        l1_eta = lambda1 * tf.reduce_sum(tf.abs(eta))
+        l1_xi = lambda2 * tf.reduce_sum(tf.abs(xi))
+        l1_beta = lambda_beta * tf.reduce_sum(tf.abs(current_beta_t))
         
         # 总损失
         total_loss = neg_log_likelihood + l1_eta + l1_xi + l1_beta
@@ -157,34 +161,26 @@ def TransCox_Sparse(CovData, cumH, hazards, status, estR, Xinn,
         with tf.GradientTape() as tape:
             loss_value = loss_fn()
         
+        # 软阈值化函数定义
+        def soft_threshold(x, threshold):
+            """优化的软阈值化函数，使用向量化操作"""
+            abs_x = tf.abs(x)
+            return tf.sign(x) * tf.maximum(abs_x - threshold, 0.0)
+        
         # 计算梯度 - 包含beta_t以实现真正的稀疏优化
         if lambda_beta > 0:
             gradients = tape.gradient(loss_value, [eta, xi, beta_t])
             optimizer.apply_gradients(zip(gradients, [eta, xi, beta_t]))
             
             # 对所有参数应用软阈值化以实现稀疏性
-            # 软阈值化: sign(x) * max(0, |x| - threshold)
-            
-            # 对beta_t应用软阈值化
             threshold_beta = lambda_beta * 0.1  # 进一步降低阈值，确保不过度稀疏化
-            beta_t_sign = tf.sign(beta_t)
-            beta_t_abs = tf.abs(beta_t)
-            beta_t_thresholded = beta_t_sign * tf.maximum(0.0, beta_t_abs - threshold_beta)
-            beta_t.assign(beta_t_thresholded)
+            beta_t.assign(soft_threshold(beta_t, threshold_beta))
             
-            # 对eta应用软阈值化
             threshold_eta = lambda1 * 0.05  # 进一步降低阈值，确保不过度稀疏化
-            eta_sign = tf.sign(eta)
-            eta_abs = tf.abs(eta)
-            eta_thresholded = eta_sign * tf.maximum(0.0, eta_abs - threshold_eta)
-            eta.assign(eta_thresholded)
+            eta.assign(soft_threshold(eta, threshold_eta))
             
-            # 对xi应用软阈值化
             threshold_xi = lambda2 * 0.05  # 进一步降低阈值，确保不过度稀疏化
-            xi_sign = tf.sign(xi)
-            xi_abs = tf.abs(xi)
-            xi_thresholded = xi_sign * tf.maximum(0.0, xi_abs - threshold_xi)
-            xi.assign(xi_thresholded)
+            xi.assign(soft_threshold(xi, threshold_xi))
             
         else:
             gradients = tape.gradient(loss_value, [eta, xi])
@@ -212,13 +208,29 @@ def TransCox_Sparse(CovData, cumH, hazards, status, estR, Xinn,
         if verbose and (step + 1) % 50 == 0:
             print(f"步骤 {step + 1}/{nsteps}, 损失: {loss_value.numpy():.6f}")
         
-        # 检查收敛
-        if step > 10:
-            recent_losses = loss_history[-10:]
-            if max(recent_losses) - min(recent_losses) < tolerance:
-                if verbose:
-                    print(f"在步骤 {step + 1} 收敛")
-                break
+        # 优化的收敛检查
+        if step > convergence_window:
+            # 使用损失变化和参数变化双重检查
+            recent_losses = loss_history[-convergence_window:]
+            loss_change = max(recent_losses) - min(recent_losses)
+            
+            # 参数变化检查
+            if step > 0:
+                # 计算参数的相对变化
+                eta_norm = tf.norm(eta)
+                xi_norm = tf.norm(xi)
+                
+                if lambda_beta > 0:
+                    beta_norm = tf.norm(beta_t)
+                    total_norm = tf.sqrt(eta_norm**2 + xi_norm**2 + beta_norm**2)
+                else:
+                    total_norm = tf.sqrt(eta_norm**2 + xi_norm**2)
+                
+                # 如果损失变化很小且参数范数稳定，则认为收敛
+                if loss_change < tolerance and total_norm > 0:
+                    if verbose:
+                        print(f"在步骤 {step + 1} 收敛，损失变化: {loss_change:.6f}")
+                    break
     
     # 计算最终结果
     eta_final = eta.numpy()

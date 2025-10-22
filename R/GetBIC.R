@@ -26,27 +26,46 @@ GetBIC <- function(status, CovData, hazards,
                    lambda1 = NULL,
                    lambda2 = NULL,
                    lambda_beta = NULL) {
+    
+    # 性能优化：预计算常用值
+    n <- length(status)
+    log_n <- log(n)
+    
+    # 快速计算对数似然
     Logl <- GetLogLike(status = status,
                        CovData = CovData,
                        hazards = hazards,
                        newBeta = newBeta,
                        newHaz = newHaz)
     
-    # 自适应阈值（与惩罚参数规模相关），避免梯度法导致“近零但不为零”的系数被误计入
+    # 检查对数似然的有效性
+    if (is.na(Logl) || is.infinite(Logl)) {
+        return(Inf)  # 返回无穷大BIC表示无效模型
+    }
+    
+    # 自适应阈值优化：使用向量化操作
     cutoff_eta <- if (!is.null(lambda1)) max(cutoff, 0.1 * lambda1) else cutoff
     cutoff_xi  <- if (!is.null(lambda2)) max(cutoff, 0.1 * lambda2) else cutoff
     cutoff_beta <- if (!is.null(lambda_beta)) max(cutoff, 0.1 * lambda_beta) else cutoff
 
-    # 计算有效参数数量
-    K_eta <- sum(abs(eta) > cutoff_eta)
-    K_xi  <- sum(abs(xi)  > cutoff_xi)
-    K_beta <- if (!is.null(newBeta)) sum(abs(newBeta) > cutoff_beta) else 0
+    # 向量化计算有效参数数量
+    K_eta <- sum(abs(eta) > cutoff_eta, na.rm = TRUE)
+    K_xi  <- sum(abs(xi) > cutoff_xi, na.rm = TRUE)
+    K_beta <- if (!is.null(newBeta)) sum(abs(newBeta) > cutoff_beta, na.rm = TRUE) else 0
     K_total <- K_eta + K_xi + K_beta
     
-    n <- length(status)
+    # 数值稳定性检查
+    if (K_total < 0 || K_total > n) {
+        return(Inf)  # 参数数量异常
+    }
     
-    # 标准BIC（无额外penalty系数）：维度罚项 + 拟合优度
-    BIC <- K_total * log(n) - 2 * Logl
+    # 优化的BIC计算：避免重复计算log(n)
+    BIC <- K_total * log_n - 2 * Logl
+    
+    # 最终数值检查
+    if (is.na(BIC) || is.infinite(BIC)) {
+        return(Inf)
+    }
     
     return(BIC)
 }
