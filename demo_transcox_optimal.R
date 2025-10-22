@@ -10,19 +10,19 @@ use_condaenv("TransCoxEnvi")
 library(TransCox)
 source_python(system.file("python", "TransCoxFunction.py", package = "TransCox"))
 suppressMessages({
-  library(survival)
-  library(reticulate)
-  # 加载R端函数
-  source("R/cox_lasso_model.R")
-  source("setup_environment.R")
-  source("R/runTransCox_Sparse.R")
-  source("R/SelParam_By_BIC_Sparse.R")
-  source("R/generate_sparse_survival_data.R")
-  # 加载Python端函数（确保TensorFlow可用）
-  try({
-    reticulate::source_python("inst/python/TransCoxFunction_Sparse.py")
-    reticulate::source_python("inst/python/TransCoxFunction.py")
-  }, silent = TRUE)
+    library(survival)
+    library(reticulate)
+    # 加载R端函数
+    source("R/cox_lasso_model.R")
+    source("setup_environment.R")
+    source("R/runTransCox_Sparse.R")
+    source("R/SelParam_By_BIC_Sparse.R")
+    source("R/generate_sparse_survival_data.R")
+    # 加载Python端函数（确保TensorFlow可用）
+    try({
+        reticulate::source_python("inst/python/TransCoxFunction_Sparse.py")
+        reticulate::source_python("inst/python/TransCoxFunction.py")
+    }, silent = TRUE)
 })
 
 cat("=== BIC参数选择 vs 暴力搜索对比实验 ===\n\n")
@@ -39,11 +39,11 @@ true_beta[active_indices] <- rnorm(n_active, mean = 0.9, sd = 0.3)
 # 生成数据（Weibull），增强活跃特征相关性
 cat("生成Weibull高维稀疏数据...\n")
 sparse_data <- generate_sparse_survival_data(
-  n_main = n_prim, n_aux = n_aux, n_test = n_test,
-  p = p, p_active = n_active,
-  beta_true = true_beta,
-  transfer_strength = 0.95, noise_level = 0.06,
-  censoring_rate = 0.25, seed = 123, verbose = TRUE
+    n_main = n_prim, n_aux = n_aux, n_test = n_test,
+    p = p, p_active = n_active,
+    beta_true = true_beta,
+    transfer_strength = 0.95, noise_level = 0.06,
+    censoring_rate = 0.25, seed = 123, verbose = TRUE
 )
 
 prim_data <- sparse_data$main_data
@@ -85,35 +85,129 @@ cat("- nsteps:", nsteps, "\n\n")
 
 # 评估指标函数（与auto_weibull完全一致）
 eval_combo <- function(transcox_coef) {
-  trans_risk <- as.vector(X_test %*% transcox_coef)
-  trans_cindex <- survival::concordance(y_test ~ trans_risk, reverse = TRUE)$concordance
-  # 稀疏性与F1
-  true_active <- abs(true_beta) > 1e-6
-  trans_active <- abs(transcox_coef) > 1e-6
-  tp <- sum(true_active & trans_active)
-  fp <- sum(trans_active & !true_active)
-  fn <- sum(true_active & !trans_active)
-  precision <- ifelse((tp + fp) == 0, 0, tp / (tp + fp))
-  recall <- ifelse((tp + fn) == 0, 0, tp / (tp + fn))
-  f1 <- ifelse((precision + recall) == 0, 0, 2 * precision * recall / (precision + recall))
-  list(cindex = trans_cindex, precision = precision, recall = recall, f1 = f1,
-       nonzero = sum(trans_active))
+    trans_risk <- as.vector(X_test %*% transcox_coef)
+    trans_cindex <- survival::concordance(y_test ~ trans_risk, reverse = TRUE)$concordance
+    # 稀疏性与F1
+    true_active <- abs(true_beta) > 1e-6
+    trans_active <- abs(transcox_coef) > 1e-6
+    tp <- sum(true_active & trans_active)
+    fp <- sum(trans_active & !true_active)
+    fn <- sum(true_active & !trans_active)
+    precision <- ifelse((tp + fp) == 0, 0, tp / (tp + fp))
+    recall <- ifelse((tp + fn) == 0, 0, tp / (tp + fn))
+    f1 <- ifelse((precision + recall) == 0, 0, 2 * precision * recall / (precision + recall))
+    list(cindex = trans_cindex, precision = precision, recall = recall, f1 = f1,
+         nonzero = sum(trans_active))
 }
+
+# 第四步: BIC参数选择
+cat("第四步: 使用TransCox-Sparse进行自动参数选择和训练\n")
+transcox_start_time <- Sys.time()
+
+# 直接调用 runTransCox_Sparse，启用自动调参
+transcox_result <- runTransCox_Sparse(
+    primData = prim_data,
+    auxData = aux_data,
+    cov = feature_names,
+    statusvar = "status",
+    lambda1 = NULL,           # 设为NULL启用自动选择
+    lambda2 = NULL,           # 设为NULL启用自动选择
+    lambda_beta = NULL,       # 设为NULL启用自动选择
+    learning_rate = learning_rate,
+    nsteps = nsteps,
+    auto_tune = TRUE,         # 启用自动调参
+    verbose = TRUE
+)
+
+transcox_end_time <- Sys.time()
+
+cat("\nTransCox-Sparse自动选择结果:\n")
+cat("- 最优lambda1:", transcox_result$lambda1_used, "\n")
+cat("- 最优lambda2:", transcox_result$lambda2_used, "\n")
+cat("- 最优lambda_beta:", transcox_result$lambda_beta_used, "\n")
+if (!is.null(transcox_result$bic_result) && !is.null(transcox_result$bic_result$BIC_array)) {
+    cat("- 最小BIC值:", round(min(transcox_result$bic_result$BIC_array, na.rm = TRUE), 4), "\n")
+} else {
+    cat("- BIC值: 未记录\n")
+}
+cat("- 训练耗时:", round(difftime(transcox_end_time, transcox_start_time, units="mins"), 2), "分钟\n\n")
+
+# 评估模型性能
+cat("TransCox-Sparse模型性能:\n")
+bic_transcox_coef <- as.vector(transcox_result$new_beta)
+bic_metrics <- eval_combo(bic_transcox_coef)
+
+cat("Transcox模型性能:\n")
+cat("- C-index:", round(bic_metrics$cindex, 4), "\n")
+cat("- 选择特征数:", bic_metrics$nonzero, "\n")
+cat("- F1分数:", round(bic_metrics$f1, 4), "\n")
+cat("- 精确度:", round(bic_metrics$precision, 4), "\n")
+cat("- 召回率:", round(bic_metrics$recall, 4), "\n")
+cat("- C-index提升:", round(bic_metrics$cindex - lasso_cindex, 4), "\n\n")
+
+
+cat("--- 系数向量与真实Beta的比较 ---\n\n")
+
+# 确保所有向量长度一致 (p)
+cat("--- 系数向量与真实Beta的详细比较 ---\n\n")
+
+
+# 创建一个对比数据框
+active_comparison <- data.frame(
+    Index = active_indices,
+    TrueBeta = true_beta[active_indices],
+    LassoEst = lasso_coef[active_indices],
+    TransCoxEst = bic_transcox_coef[active_indices]
+)
+# 计算估计误差
+active_comparison$LassoError <- active_comparison$LassoEst - active_comparison$TrueBeta
+active_comparison$TransCoxError <- active_comparison$TransCoxEst - active_comparison$TrueBeta
+
+cat("活跃系数的估计值及误差:\n")
+print(round(active_comparison, 5)) # 打印表格，保留5位小数
+cat("\n")
+
+# 1. 计算Lasso的误差
+lasso_mse <- mean((lasso_coef - true_beta)^2)
+lasso_mae <- mean(abs(lasso_coef - true_beta))
+
+# 2. 计算TransCox-BIC的误差
+bic_mse <- mean((bic_transcox_coef - true_beta)^2)
+bic_mae <- mean(abs(bic_transcox_coef - true_beta))
+
+# 3. 打印比较结果
+cat(sprintf("Lasso Cox (基线) vs True Beta:\n"))
+cat(sprintf("- 均方误差 (MSE): %.6f\n", lasso_mse))
+cat(sprintf("- 平均绝对误差 (MAE): %.6f\n", lasso_mae))
+
+cat(sprintf("\nTransCox-BIC vs True Beta:\n"))
+cat(sprintf("- 均方误差 (MSE): %.6f\n", bic_mse))
+cat(sprintf("- 平均绝对误差 (MAE): %.6f\n", bic_mae))
+
+cat("\n" , rep("=", 80), "\n")
+cat("运行 3：TransCox-Sparse (修正后的自动选择)\n")
+
+
+
+
+
+#############################
+###########################################################################################################
 
 # 第四步: BIC参数选择
 cat("第四步: 使用BIC进行参数选择\n")
 bic_start_time <- Sys.time()
 bic_result <- SelParam_By_BIC_Sparse(
-  primData = prim_data,
-  auxData = aux_data,
-  cov = feature_names,
-  statusvar = "status",
-  lambda1_vec = lambda1_grid,
-  lambda2_vec = lambda2_grid,
-  lambda_beta_vec = lambda_beta_grid,
-  learning_rate = learning_rate,
-  nsteps = nsteps,
-  verbose = TRUE
+    primData = prim_data,
+    auxData = aux_data,
+    cov = feature_names,
+    statusvar = "status",
+    lambda1_vec = lambda1_grid,
+    lambda2_vec = lambda2_grid,
+    lambda_beta_vec = lambda_beta_grid,
+    learning_rate = learning_rate,
+    nsteps = nsteps,
+    verbose = TRUE
 )
 bic_end_time <- Sys.time()
 
@@ -146,10 +240,10 @@ cat("--- 系数向量与真实Beta的详细比较 ---\n\n")
 
 # 创建一个对比数据框
 active_comparison <- data.frame(
-  Index = active_indices,
-  TrueBeta = true_beta[active_indices],
-  LassoEst = lasso_coef[active_indices],
-  TransCoxEst = bic_transcox_coef[active_indices]
+    Index = active_indices,
+    TrueBeta = true_beta[active_indices],
+    LassoEst = lasso_coef[active_indices],
+    TransCoxEst = bic_transcox_coef[active_indices]
 )
 # 计算估计误差
 active_comparison$LassoError <- active_comparison$LassoEst - active_comparison$TrueBeta
@@ -175,3 +269,18 @@ cat(sprintf("- 平均绝对误差 (MAE): %.6f\n", lasso_mae))
 cat(sprintf("\nTransCox-BIC vs True Beta:\n"))
 cat(sprintf("- 均方误差 (MSE): %.6f\n", bic_mse))
 cat(sprintf("- 平均绝对误差 (MAE): %.6f\n", bic_mae))
+
+
+
+
+
+cat("\n--- 三种方法性能对比 ---\n")
+cat(sprintf("方法                    | C-index | 特征数 | MSE      | MAE      \n"))
+cat(sprintf("------------------------|---------|--------|----------|----------\n"))
+cat(sprintf("Lasso Cox (基线)        | %.4f  | %3d    | %.6f | %.6f\n",
+            lasso_cindex, sum(lasso_coef != 0), lasso_mse, lasso_mae))
+cat(sprintf("TransCox-Sparse (原始)  | %.4f  | %3d    | %.6f | %.6f\n",
+            bic_metrics$cindex, bic_metrics$nonzero, bic_mse, bic_mae))
+cat(sprintf("TransCox-Sparse (修正)  | %.4f  | %3d    | %.6f | %.6f\n",
+            improved_metrics$cindex, improved_metrics$nonzero, improved_mse, improved_mae))
+

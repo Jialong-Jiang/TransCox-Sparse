@@ -138,7 +138,7 @@ runTransCox_Sparse <- function(primData, auxData,
                 statusvar = statusvar,
                 lambda1_vec = if(is.null(lambda1)) c(0.01, 0.05, 0.1, 0.2, 0.5, 1.0) else lambda1,
                 lambda2_vec = if(is.null(lambda2)) c(0.01, 0.05, 0.1, 0.2, 0.5, 1.0) else lambda2,
-                lambda_beta_vec = if(is.null(lambda_beta)) c(0, 0.005, 0.01, 0.015, 0.02, 0.03, 0.04, 0.05, 0.07, 0.1) else lambda_beta,
+                lambda_beta_vec = if(is.null(lambda_beta)) c(0.005, 0.01, 0.015, 0.02, 0.025, 0.03, 0.04, 0.05) else lambda_beta,
                 learning_rate = learning_rate,
                 nsteps = nsteps,
                 verbose = verbose
