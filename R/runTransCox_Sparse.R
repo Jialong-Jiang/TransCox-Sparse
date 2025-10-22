@@ -1,21 +1,73 @@
-#' 高维稀疏TransCox主函数
+#' Sparse TransCox Model for High-Dimensional Survival Analysis
 #' 
-#' 整合所有组件的主要接口函数，支持高维稀疏数据
+#' @description 
+#' This function implements the sparse TransCox model for high-dimensional survival analysis
+#' with transfer learning. It integrates source domain (auxiliary) data to improve prediction
+#' performance on the target domain (primary) data through regularized Cox regression with
+#' L1 penalties.
 #' 
-#' @param primData 目标域数据
-#' @param auxData 源域数据
-#' @param cov 协变量名称向量
-#' @param statusvar 状态变量名称
-#' @param lambda1 eta的L1惩罚参数（如果为NULL则自动选择）
-#' @param lambda2 xi的L1惩罚参数（如果为NULL则自动选择）
-#' @param lambda_beta beta_t的L1惩罚参数（如果为NULL则自动选择）
-#' @param learning_rate 学习率
-#' @param nsteps 优化步数
-#' @param auto_tune 是否自动调参
-#' @param use_sparse 是否强制使用稀疏版本
-#' @param verbose 是否显示详细信息
+#' @details
+#' The sparse TransCox model addresses the challenge of limited sample sizes in survival
+#' analysis by leveraging information from related source domains. The model uses L1
+#' regularization to achieve sparsity and automatic feature selection, making it suitable
+#' for high-dimensional data where the number of features exceeds the number of samples.
 #' 
-#' @return TransCox结果列表
+#' @param primData A data.frame containing the target domain survival data. Must include
+#'   survival time, event status, and covariates.
+#' @param auxData A data.frame containing the source domain survival data with the same
+#'   structure as primData.
+#' @param cov A character vector specifying the names of covariates to be used in the model.
+#'   Default is c("X1", "X2").
+#' @param statusvar A character string specifying the name of the event status variable.
+#'   Default is "status".
+#' @param lambda1 Numeric. L1 penalty parameter for eta (auxiliary parameter). If NULL,
+#'   will be automatically selected via BIC. Default is NULL.
+#' @param lambda2 Numeric. L1 penalty parameter for xi (transfer parameter). If NULL,
+#'   will be automatically selected via BIC. Default is NULL.
+#' @param lambda_beta Numeric. L1 penalty parameter for beta_t (target parameter). If NULL,
+#'   will be automatically selected via BIC. Default is NULL.
+#' @param learning_rate Numeric. Learning rate for the optimization algorithm. Default is 0.004.
+#' @param nsteps Integer. Maximum number of optimization steps. Default is 200.
+#' @param auto_tune Logical. Whether to automatically tune hyperparameters using BIC.
+#'   Default is TRUE.
+#' @param use_sparse Logical. Whether to force the use of sparse implementation. If NULL,
+#'   automatically determined based on data dimensions. Default is NULL.
+#' @param verbose Logical. Whether to display detailed progress information. Default is TRUE.
+#' @param tolerance Numeric. Convergence tolerance for the optimization algorithm.
+#'   Default is 1e-6.
+#' @param early_stopping Logical. Whether to enable early stopping mechanism. Default is TRUE.
+#' @param adaptive_lr Logical. Whether to use adaptive learning rate. Default is TRUE.
+#' 
+#' @return A list containing the following components:
+#' \describe{
+#'   \item{beta_t}{Estimated coefficients for the target domain}
+#'   \item{eta}{Estimated auxiliary parameters}
+#'   \item{xi}{Estimated transfer parameters}
+#'   \item{lambda1}{Used L1 penalty for eta}
+#'   \item{lambda2}{Used L1 penalty for xi}
+#'   \item{lambda_beta}{Used L1 penalty for beta_t}
+#'   \item{convergence}{Convergence information}
+#'   \item{sparse_info}{Information about sparsity patterns}
+#' }
+#' 
+#' @examples
+#' \dontrun{
+#' # Generate example data
+#' data <- generate_sparse_survival_data(n_main = 100, n_aux = 200, p = 50)
+#' 
+#' # Fit sparse TransCox model
+#' result <- runTransCox_Sparse(
+#'   primData = data$prim_data,
+#'   auxData = data$aux_data,
+#'   cov = paste0("X", 1:50),
+#'   statusvar = "status"
+#' )
+#' 
+#' # View results
+#' print(result)
+#' }
+#' 
+#' @export
 #' 
 runTransCox_Sparse <- function(primData, auxData, 
                               cov = c("X1", "X2"),
@@ -27,14 +79,12 @@ runTransCox_Sparse <- function(primData, auxData,
                               nsteps = 200,
                               auto_tune = TRUE,
                               use_sparse = NULL,
-                              verbose = TRUE) {
+                              verbose = TRUE,
+                              tolerance = 1e-6,
+                              early_stopping = TRUE,
+                              adaptive_lr = TRUE) {
     
-    if (verbose) {
-        cat("=== TransCox高维稀疏分析 ===\n")
-        cat("目标域样本数:", nrow(primData), "\n")
-        cat("源域样本数:", nrow(auxData), "\n")
-        cat("特征数:", length(cov), "\n")
-    }
+    # 基本信息记录（可选）
     
     # 自动检测是否使用稀疏版本
     if (is.null(use_sparse)) {
@@ -42,28 +92,42 @@ runTransCox_Sparse <- function(primData, auxData,
         n_features <- length(cov)
         use_sparse <- (n_features > n_samples / 2)
         
-        if (verbose) {
-            if (use_sparse) {
-                cat("检测到高维数据 (p=", n_features, ", n=", n_samples, 
-                    ")，使用稀疏版本\n")
-            } else {
-                cat("使用标准版本\n")
-            }
-        }
+        # 自动选择稀疏版本或标准版本
     }
     
     # 加载必要的函数
+    if (!exists("GetPrimaryParam")) {
+        source(file.path(getwd(), "R", "GetPrimaryParam.R"))
+    }
+    if (!exists("deltaQ")) {
+        source(file.path(getwd(), "R", "deltaQ.R"))
+    }
+    
     if (use_sparse) {
-        source(file.path(getwd(), "R", "GetAuxSurv_Sparse.R"))
-        source(file.path(getwd(), "R", "SelParam_By_BIC_Sparse.R"))
-        source_python(file.path(getwd(), "inst", "python", "TransCoxFunction_Sparse.py"))
+        if (!exists("GetAuxSurv_Sparse")) {
+            source(file.path(getwd(), "R", "GetAuxSurv_Sparse.R"))
+        }
+        if (!exists("SelParam_By_BIC_Sparse")) {
+            source(file.path(getwd(), "R", "SelParam_By_BIC_Sparse.R"))
+        }
+        if (!exists("TransCox_Sparse")) {
+            reticulate::source_python(file.path(getwd(), "inst", "python", "TransCoxFunction_Sparse.py"))
+        }
     } else {
-        source_python(system.file("python", "TransCoxFunction.py", package = "TransCox"))
+        if (!exists("TransCox")) {
+            reticulate::source_python(system.file("python", "TransCoxFunction.py", package = "TransCox"))
+        }
     }
     
     # 参数调优
-    if (auto_tune && (is.null(lambda1) || is.null(lambda2) || is.null(lambda_beta))) {
-        if (verbose) cat("\n=== 自动参数调优 ===\n")
+    # 如果auto_tune=TRUE且任何参数是向量或NULL，则进行BIC选择
+    need_tune <- auto_tune && (
+        is.null(lambda1) || is.null(lambda2) || is.null(lambda_beta) ||
+        length(lambda1) > 1 || length(lambda2) > 1 || length(lambda_beta) > 1
+    )
+    
+    if (need_tune) {
+        # 自动参数调优
         
         if (use_sparse) {
             # 使用稀疏版本的BIC选择
@@ -74,7 +138,7 @@ runTransCox_Sparse <- function(primData, auxData,
                 statusvar = statusvar,
                 lambda1_vec = if(is.null(lambda1)) c(0.01, 0.05, 0.1, 0.2, 0.5, 1.0) else lambda1,
                 lambda2_vec = if(is.null(lambda2)) c(0.01, 0.05, 0.1, 0.2, 0.5, 1.0) else lambda2,
-                lambda_beta_vec = if(is.null(lambda_beta)) c(0, 0.01, 0.05, 0.1, 0.2, 0.5) else lambda_beta,
+                lambda_beta_vec = if(is.null(lambda_beta)) c(0, 0.005, 0.01, 0.015, 0.02, 0.03, 0.04, 0.05, 0.07, 0.1) else lambda_beta,
                 learning_rate = learning_rate,
                 nsteps = nsteps,
                 verbose = verbose
@@ -84,28 +148,29 @@ runTransCox_Sparse <- function(primData, auxData,
             lambda2 <- bic_result$best_lambda2
             lambda_beta <- bic_result$best_lambda_beta
             
-            if (verbose) {
-                cat("BIC选择的最优参数:\n")
-                cat("  lambda1:", lambda1, "\n")
-                cat("  lambda2:", lambda2, "\n") 
-                cat("  lambda_beta:", lambda_beta, "\n")
+            # BIC选择完成
+            
+            # 如果BIC结果包含最终模型，直接返回
+            if (!is.null(bic_result$final_beta)) {
+                result <- list(
+                    eta = bic_result$final_eta,
+                    xi = bic_result$final_xi,
+                    new_beta = bic_result$final_beta,
+                    new_IntH = if (!is.null(bic_result$final_xi)) bic_result$final_xi else rep(0, sum(auxData$status == 2)),
+                    source_estR = if (!is.null(bic_result$source_estR)) bic_result$source_estR else rep(0, length(cov)),
+                    lambda1_used = lambda1,
+                    lambda2_used = lambda2,
+                    lambda_beta_used = lambda_beta,
+                    convergence_info = bic_result$convergence_info,
+                    bic_result = bic_result,
+                    nonzero_count = sum(abs(bic_result$final_beta) > 1e-8),
+                    sparsity_ratio = 1 - sum(abs(bic_result$final_beta) > 1e-8) / length(bic_result$final_beta),
+                    use_sparse = use_sparse
+                )
+                
+                class(result) <- "TransCox_Sparse"
+                return(result)
             }
-            
-            # 直接返回BIC结果中的最终结果
-            result <- list(
-                eta = bic_result$final_eta,
-                xi = bic_result$final_xi,
-                new_beta = bic_result$final_beta,
-                new_IntH = bic_result$final_xi + auxData$time[auxData$status == 2],  # 需要调整
-                source_estR = bic_result$source_estR,
-                lambda1_used = lambda1,
-                lambda2_used = lambda2,
-                lambda_beta_used = lambda_beta,
-                convergence_info = bic_result$convergence_info,
-                bic_result = bic_result
-            )
-            
-            return(result)
             
         } else {
             # 使用原始版本的BIC选择
@@ -114,8 +179,8 @@ runTransCox_Sparse <- function(primData, auxData,
                 auxData = auxData,
                 cov = cov,
                 statusvar = statusvar,
-                lambda1_vec = if(is.null(lambda1)) c(0.1, 0.5, seq(1, 5, by = 0.5)) else lambda1,
-                lambda2_vec = if(is.null(lambda2)) c(0.1, 0.5, seq(1, 5, by = 0.5)) else lambda2,
+                lambda1_vec = if(is.null(lambda1)) c(0, 0.001, 0.005, 0.01, 0.02, 0.05, 0.1) else lambda1,
+                lambda2_vec = if(is.null(lambda2)) c(0, 0.001, 0.005, 0.01, 0.02, 0.05, 0.1) else lambda2,
                 learning_rate = learning_rate,
                 nsteps = nsteps
             )
@@ -127,14 +192,46 @@ runTransCox_Sparse <- function(primData, auxData,
     }
     
     # 设置默认值
-    if (is.null(lambda1)) lambda1 <- 0.1
-    if (is.null(lambda2)) lambda2 <- 0.1
-    if (is.null(lambda_beta)) lambda_beta <- 0
+    if (is.null(lambda1)) lambda1 <- 0.01  # 降低默认值，减少过度正则化
+    if (is.null(lambda2)) lambda2 <- 0.01  # 降低默认值，减少过度正则化
+    if (is.null(lambda_beta)) {
+        # 根据数据维度自适应设置lambda_beta默认值
+        n_features <- length(cov)
+        n_samples <- nrow(primData)
+        if (use_sparse && n_features > n_samples / 2) {
+            lambda_beta <- 0.03  # 高维数据使用适度的稀疏化
+        } else if (use_sparse) {
+            lambda_beta <- 0.02  # 稀疏模式下使用轻度稀疏化
+        } else {
+            lambda_beta <- 0
+        }
+    }
+    
+    # 自适应学习率调整
+    if (adaptive_lr && nsteps > 100) {
+        learning_rate <- learning_rate * 0.8
+        if (verbose) cat("自适应学习率调整为:", learning_rate, "\n")
+    }
+    
+    # 早停机制
+    if (early_stopping && nsteps > 500) {
+        nsteps <- min(nsteps, 300)
+        if (verbose) cat("早停机制启用，最大步数调整为:", nsteps, "\n")
+    }
+    
+    # 根据数据复杂度调整最大步数
+    n_features <- length(cov)
+    if (n_features > 500) {
+        nsteps <- min(nsteps * 1.5, 500)  # 高维数据可能需要更多步数
+    } else if (n_features < 50) {
+        nsteps <- max(nsteps * 0.7, 100)  # 低维数据通常收敛更快
+    }
     
     if (verbose) {
-        cat("\n=== 最终模型拟合 ===\n")
-        cat("使用参数: lambda1=", lambda1, ", lambda2=", lambda2, ", lambda_beta=", lambda_beta, "\n")
+        cat("早停机制启用，最大步数调整为:", nsteps, "\n")
     }
+    
+    # 最终模型拟合
     
     # 估计源域参数
     if (use_sparse) {
@@ -153,7 +250,13 @@ runTransCox_Sparse <- function(primData, auxData,
     hazards <- Pout$dQ$dQ
     
     # 运行TransCox
-    if (use_sparse && lambda_beta > 0) {
+    # 检查是否使用稀疏版本（处理向量参数的情况）
+    use_sparse_version <- use_sparse && (
+        (length(lambda_beta) > 1) || 
+        (length(lambda_beta) == 1 && lambda_beta > 0)
+    )
+    
+    if (use_sparse_version) {
         # 使用稀疏版本
         trans_result <- TransCox_Sparse(
             CovData = as.matrix(CovData),
@@ -167,6 +270,7 @@ runTransCox_Sparse <- function(primData, auxData,
             lambda_beta = lambda_beta,
             learning_rate = learning_rate,
             nsteps = nsteps,
+            tolerance = tolerance,
             verbose = verbose
         )
         
@@ -197,19 +301,30 @@ runTransCox_Sparse <- function(primData, auxData,
     }
     
     # 计算稀疏性统计
-    nonzero_beta <- sum(abs(new_beta) > 1e-8)
+    nonzero_beta <- sum(abs(new_beta) > 1e-8, na.rm = TRUE)
     sparsity_ratio <- 1 - nonzero_beta / length(new_beta)
     
-    if (verbose) {
-        cat("\n=== 结果摘要 ===\n")
-        cat("最终beta非零系数:", nonzero_beta, "/", length(new_beta), "\n")
-        cat("稀疏度:", round(sparsity_ratio * 100, 2), "%\n")
-        
-        if (!is.null(convergence_info)) {
-            cat("优化收敛:", ifelse(convergence_info$converged, "是", "否"), "\n")
-            cat("最终损失:", round(convergence_info$final_loss, 6), "\n")
-        }
+    # 防止过度稀疏化的安全检查
+    sparsity_warnings <- character(0)
+    if (!is.na(nonzero_beta) && nonzero_beta == 0) {
+        sparsity_warnings <- c(sparsity_warnings, "警告: 所有系数被置零，模型可能过度稀疏化")
+        if (verbose) cat("⚠️  警告: 所有系数被置零，建议降低lambda_beta值\n")
+    } else if (!is.na(sparsity_ratio) && sparsity_ratio > 0.95) {
+         sparsity_warnings <- c(sparsity_warnings, paste0("警告: 稀疏度过高 (", round(sparsity_ratio * 100, 1), "%)"))
+         if (verbose) cat("⚠️  警告: 稀疏度过高，可能影响模型性能\n")
+     } else if (!is.na(sparsity_ratio) && sparsity_ratio < 0.1 && use_sparse) {
+         sparsity_warnings <- c(sparsity_warnings, "提示: 稀疏度较低，可能需要增加lambda_beta")
+         if (verbose) cat("💡 提示: 稀疏度较低，考虑增加lambda_beta以获得更好的特征选择\n")
+     }
+     
+     # 最小非零系数检查
+     min_nonzero <- max(1, round(length(new_beta) * 0.05))  # 至少保留5%的特征
+     if (!is.na(nonzero_beta) && nonzero_beta > 0 && nonzero_beta < min_nonzero && use_sparse) {
+        sparsity_warnings <- c(sparsity_warnings, paste0("建议: 非零系数过少 (", nonzero_beta, "), 建议至少保留 ", min_nonzero, " 个"))
+        if (verbose) cat("💡 建议: 考虑降低lambda_beta以保留更多有用特征\n")
     }
+    
+    # 计算完成
     
     # 返回结果
     result <- list(
@@ -225,6 +340,7 @@ runTransCox_Sparse <- function(primData, auxData,
         nonzero_count = nonzero_beta,
         sparsity_ratio = sparsity_ratio,
         convergence_info = convergence_info,
+        sparsity_warnings = sparsity_warnings,
         use_sparse = use_sparse
     )
     
@@ -235,26 +351,15 @@ runTransCox_Sparse <- function(primData, auxData,
 #' 打印TransCox_Sparse结果
 #' 
 print.TransCox_Sparse <- function(x, ...) {
-    cat("TransCox高维稀疏分析结果\n")
-    cat("========================\n")
-    cat("特征数:", length(x$new_beta), "\n")
-    cat("非零系数:", x$nonzero_count, "\n")
-    cat("稀疏度:", round(x$sparsity_ratio * 100, 2), "%\n")
-    cat("使用稀疏版本:", x$use_sparse, "\n")
-    cat("\n参数:\n")
-    cat("  lambda1 (eta):", x$lambda1_used, "\n")
-    cat("  lambda2 (xi):", x$lambda2_used, "\n")
-    cat("  lambda_beta:", x$lambda_beta_used, "\n")
+    cat("TransCox Sparse Results\n")
+    cat("Features:", length(x$new_beta), "\n")
+    cat("Non-zero coefficients:", x$nonzero_count, "\n")
+    cat("Sparsity:", round(x$sparsity_ratio * 100, 2), "%\n")
+    cat("Parameters: lambda1=", x$lambda1_used, ", lambda2=", x$lambda2_used, ", lambda_beta=", x$lambda_beta_used, "\n")
     
     if (!is.null(x$convergence_info)) {
-        cat("\n收敛信息:\n")
-        cat("  收敛:", ifelse(x$convergence_info$converged, "是", "否"), "\n")
-        cat("  最终损失:", round(x$convergence_info$final_loss, 6), "\n")
-        cat("  优化步数:", x$convergence_info$steps_taken, "\n")
+        cat("Converged:", ifelse(x$convergence_info$converged, "Yes", "No"), "\n")
     }
-    
-    cat("\n前10个系数:\n")
-    print(head(x$new_beta, 10))
 }
 
 #' 向后兼容的runTransCox_one函数
@@ -265,12 +370,21 @@ runTransCox_one <- function(Pout, l1 = 1, l2 = 1, learning_rate = 0.004, nsteps 
     # 自动检测是否使用稀疏版本
     if (is.null(use_sparse)) {
         n_features <- length(cov)
-        use_sparse <- (n_features > 50 || lambda_beta > 0)  # 如果特征数>50或使用lambda_beta则使用稀疏版本
+        has_lambda_beta <- (length(lambda_beta) > 1) || (length(lambda_beta) == 1 && lambda_beta > 0)
+        use_sparse <- (n_features > 50 || has_lambda_beta)  # 如果特征数>50或使用lambda_beta则使用稀疏版本
     }
     
-    if (use_sparse && lambda_beta > 0) {
+    # 检查是否使用稀疏版本（处理向量参数的情况）
+    use_sparse_version <- use_sparse && (
+        (length(lambda_beta) > 1) || 
+        (length(lambda_beta) == 1 && lambda_beta > 0)
+    )
+    
+    if (use_sparse_version) {
         # 加载稀疏版本
-        source_python(file.path(getwd(), "inst", "python", "TransCoxFunction_Sparse.py"))
+        if (!exists("TransCox_Sparse")) {
+            reticulate::source_python(file.path(getwd(), "inst", "python", "TransCoxFunction_Sparse.py"))
+        }
         
         CovData <- Pout$primData[, cov]
         status <- Pout$primData[, "status"]
@@ -296,12 +410,13 @@ runTransCox_one <- function(Pout, l1 = 1, l2 = 1, learning_rate = 0.004, nsteps 
         
     } else {
         # 使用原始版本
-        TransCox <- NULL
-        .onLoad <- function(libname, pkgname) {
-            tf <<- reticulate::import("tensorflow", delay_load = TRUE)
-            tfp <<- reticulate::import("tensorflow_probability", delay_load = TRUE)
-            np <<- reticulate::import("numpy", delay_load = TRUE)
-            source_python(system.file("python", "TransCoxFunction.py", package = "TransCox"))
+        if (!exists("TransCox")) {
+            tryCatch({
+                reticulate::source_python(system.file("python", "TransCoxFunction.py", package = "TransCox"))
+            }, error = function(e) {
+                # 如果包路径不存在，尝试本地路径
+                reticulate::source_python(file.path(getwd(), "inst", "python", "TransCoxFunction.py"))
+            })
         }
         
         CovData = Pout$primData[, cov]

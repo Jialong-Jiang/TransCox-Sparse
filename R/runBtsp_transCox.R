@@ -1,3 +1,22 @@
+#' 运行Bootstrap TransCox分析
+#' 
+#' @description 
+#' 使用Bootstrap方法评估TransCox模型的稳定性和置信区间
+#' 
+#' @param aData 源域数据
+#' @param pData 目标域数据
+#' @param Tres 时间点
+#' @param learning_rate 学习率
+#' @param nsteps 优化步数
+#' @param BestLam1 最优lambda1参数
+#' @param BestLam2 最优lambda2参数
+#' @param nbootstrap Bootstrap次数
+#' @param trueBeta 真实参数值（用于评估）
+#' @param Hrange 累积风险函数评估的时间范围
+#' @param cov 协变量名称向量
+#' 
+#' @return 包含Bootstrap结果的列表
+#' @export
 runBtsp_transCox <- function(aData,
                              pData,
                              Tres,

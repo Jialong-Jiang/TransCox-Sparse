@@ -1,40 +1,84 @@
-#' 高维稀疏版本的BIC参数选择函数
+#' BIC-Based Parameter Selection for Sparse TransCox
 #' 
-#' 扩展原始BIC选择以支持lambda_beta参数调优
+#' @description
+#' Performs Bayesian Information Criterion (BIC) based parameter selection for
+#' the sparse TransCox model. This function extends the original BIC selection
+#' to support three-dimensional parameter tuning including lambda_beta for
+#' target domain sparsity control.
 #' 
-#' @param primData 目标域数据
-#' @param auxData 源域数据  
-#' @param cov 协变量名称向量
-#' @param statusvar 状态变量名称
-#' @param lambda1_vec eta的L1惩罚参数候选值
-#' @param lambda2_vec xi的L1惩罚参数候选值
-#' @param lambda_beta_vec beta_t的L1惩罚参数候选值（新增）
-#' @param learning_rate 学习率
-#' @param nsteps 优化步数
-#' @param use_sparse 是否使用稀疏版本
-#' @param parallel 是否使用并行计算
-#' @param verbose 是否显示详细信息
+#' @details
+#' This function conducts a comprehensive grid search over three regularization
+#' parameters (lambda1, lambda2, lambda_beta) to find the optimal combination
+#' that minimizes the BIC. The search can be parallelized for computational
+#' efficiency when dealing with large parameter grids.
 #' 
-#' @return 包含最优参数和BIC矩阵的列表
+#' @param primData A data.frame containing the target domain survival data.
+#' @param auxData A data.frame containing the source domain survival data.
+#' @param cov A character vector specifying the names of covariates to be used.
+#'   Default is c("X1", "X2").
+#' @param statusvar A character string specifying the name of the event status
+#'   variable. Default is "status".
+#' @param lambda1_vec Numeric vector of candidate values for lambda1 (L1 penalty
+#'   for eta parameter). Default provides a reasonable range.
+#' @param lambda2_vec Numeric vector of candidate values for lambda2 (L1 penalty
+#'   for xi parameter). Default provides a reasonable range.
+#' @param lambda_beta_vec Numeric vector of candidate values for lambda_beta
+#'   (L1 penalty for beta_t parameter). Default includes zero for non-sparse option.
+#' @param learning_rate Numeric. Learning rate for the optimization algorithm.
+#'   Default is 0.004.
+#' @param nsteps Integer. Maximum number of optimization steps. Default is 200.
+#' @param use_sparse Logical. Whether to use sparse implementation. Default is TRUE.
+#' @param parallel Logical. Whether to use parallel computation for grid search.
+#'   Default is FALSE.
+#' @param verbose Logical. Whether to display detailed progress information.
+#'   Default is TRUE.
+#' 
+#' @return A list containing the following components:
+#' \describe{
+#'   \item{optimal_lambda1}{The optimal lambda1 value that minimizes BIC}
+#'   \item{optimal_lambda2}{The optimal lambda2 value that minimizes BIC}
+#'   \item{optimal_lambda_beta}{The optimal lambda_beta value that minimizes BIC}
+#'   \item{min_bic}{The minimum BIC value achieved}
+#'   \item{bic_matrix}{3D array of BIC values for all parameter combinations}
+#'   \item{parameter_grid}{Data frame of all tested parameter combinations}
+#'   \item{convergence_info}{Information about optimization convergence}
+#' }
+#' 
+#' @examples
+#' \dontrun{
+#' # Generate example data
+#' data <- generate_sparse_survival_data(n_main = 100, n_aux = 200, p = 50)
+#' 
+#' # Perform BIC-based parameter selection
+#' bic_result <- SelParam_By_BIC_Sparse(
+#'   primData = data$prim_data,
+#'   auxData = data$aux_data,
+#'   cov = paste0("X", 1:50),
+#'   lambda1_vec = c(0.1, 0.5, 1.0),
+#'   lambda2_vec = c(0.1, 0.5, 1.0),
+#'   lambda_beta_vec = c(0, 0.001, 0.01)
+#' )
+#' 
+#' # View optimal parameters
+#' print(bic_result$optimal_lambda1)
+#' print(bic_result$optimal_lambda2)
+#' print(bic_result$optimal_lambda_beta)
+#' }
+#' 
+#' @export
 #' 
 SelParam_By_BIC_Sparse <- function(primData, auxData, cov = c("X1", "X2"),
                                   statusvar = "status",
-                                  lambda1_vec = c(0.1, 0.5, seq(1, 5, by = 0.5)),
-                                  lambda2_vec = c(0.1, 0.5, seq(1, 5, by = 0.5)),
-                                  lambda_beta_vec = c(0, 0.01, 0.05, 0.1, 0.2, 0.5),
+                                  lambda1_vec = c(0.05, 0.1, 0.2, 0.3, 0.5, 0.8, 1.0, 1.5, 2.0),
+                                  lambda2_vec = c(0.05, 0.1, 0.2, 0.3, 0.5, 0.8, 1.0, 1.5, 2.0),
+                                  lambda_beta_vec = c(0, 1e-4, 2e-4, 5e-4, 1e-3, 2e-3, 5e-3, 1e-2, 2e-2, 5e-2),
                                   learning_rate = 0.004,
                                   nsteps = 200,
                                   use_sparse = TRUE,
                                   parallel = FALSE,
                                   verbose = TRUE) {
     
-    if (verbose) {
-        cat("=== 高维稀疏TransCox BIC参数选择 ===\n")
-        cat("lambda1候选值数量:", length(lambda1_vec), "\n")
-        cat("lambda2候选值数量:", length(lambda2_vec), "\n") 
-        cat("lambda_beta候选值数量:", length(lambda_beta_vec), "\n")
-        cat("总组合数:", length(lambda1_vec) * length(lambda2_vec) * length(lambda_beta_vec), "\n")
-    }
+    # BIC参数选择开始
     
     # 加载必要的R函数
     if (!exists("GetBIC")) {
@@ -46,17 +90,22 @@ SelParam_By_BIC_Sparse <- function(primData, auxData, cov = c("X1", "X2"),
     if (!exists("dQtocumQ")) {
         source(file.path(getwd(), "R", "dQtocumQ.R"))
     }
+    if (!exists("GetPrimaryParam")) {
+        source(file.path(getwd(), "R", "GetPrimaryParam.R"))
+    }
     
     # 加载Python函数
     if (use_sparse) {
-        if (verbose) cat("加载稀疏版本的Python函数...\n")
-        source_python(file.path(getwd(), "inst", "python", "TransCoxFunction_Sparse.py"))
+        if (!exists("TransCox_Sparse")) {
+            reticulate::source_python(file.path(getwd(), "inst", "python", "TransCoxFunction_Sparse.py"))
+        }
     } else {
-        source_python(system.file("python", "TransCoxFunction.py", package = "TransCox"))
+        if (!exists("TransCox")) {
+            reticulate::source_python(system.file("python", "TransCoxFunction.py", package = "TransCox"))
+        }
     }
     
     # 估计源域参数
-    if (verbose) cat("估计源域参数...\n")
     if (use_sparse) {
         # 使用稀疏版本
         source(file.path(getwd(), "R", "GetAuxSurv_Sparse.R"))
@@ -99,7 +148,7 @@ SelParam_By_BIC_Sparse <- function(primData, auxData, cov = c("X1", "X2"),
                 lambda_beta <- lambda_beta_vec[k]
                 
                 tryCatch({
-                    if (use_sparse && lambda_beta > 0) {
+                    if (use_sparse && !is.null(lambda_beta) && length(lambda_beta) == 1 && lambda_beta > 0) {
                         # 使用稀疏版本
                         result <- TransCox_Sparse(
                             CovData = as.matrix(CovData),
@@ -144,15 +193,17 @@ SelParam_By_BIC_Sparse <- function(primData, auxData, cov = c("X1", "X2"),
                     newHaz <- Pout$dQ$dQ + xi
                     
                     # 计算BIC
-                    BICvalue <- GetBIC(
-                        status = status,
-                        CovData = CovData,
-                        hazards = hazards,
-                        newBeta = newBeta,
-                        newHaz = newHaz,
-                        eta = eta,
-                        xi = xi,
-                        cutoff = 1e-5
+                    BICvalue <- GetBIC(status = status,
+                                 CovData = CovData,
+                                 hazards = hazards,
+                                 newBeta = newBeta,
+                                 newHaz = newHaz,
+                                 eta = eta,
+                                 xi = xi,
+                                 cutoff = 1e-5,
+                                 lambda1 = lambda1,
+                                 lambda2 = lambda2,
+                                 lambda_beta = lambda_beta
                     )
                     
                     BIC_array[i, j, k] <- BICvalue
@@ -184,17 +235,86 @@ SelParam_By_BIC_Sparse <- function(primData, auxData, cov = c("X1", "X2"),
     best_lambda2 <- lambda2_vec[min_idx[2]]
     best_lambda_beta <- lambda_beta_vec[min_idx[3]]
     
-    if (verbose) {
-        cat("最优参数:\n")
-        cat("  lambda1 (eta):", best_lambda1, "\n")
-        cat("  lambda2 (xi):", best_lambda2, "\n")
-        cat("  lambda_beta:", best_lambda_beta, "\n")
-        cat("  最小BIC:", min(BIC_array, na.rm = TRUE), "\n")
+    # 二阶段局部细化搜索：只微调lambda_beta以降低计算成本
+    K <- min(3, length(lambda1_vec) * length(lambda2_vec) * length(lambda_beta_vec))
+    bic_vals <- as.vector(BIC_array)
+    ord <- order(bic_vals, na.last = NA)
+    top_idx <- ord[1:K]
+    idx_mat <- arrayInd(top_idx, .dim = dim(BIC_array))
+    
+    current_best_bic <- min(bic_vals, na.rm = TRUE)
+    
+    for (r in 1:nrow(idx_mat)) {
+        i0 <- idx_mat[r, 1]; j0 <- idx_mat[r, 2]; k0 <- idx_mat[r, 3]
+        l1 <- lambda1_vec[i0]; l2 <- lambda2_vec[j0]; lb_0 <- lambda_beta_vec[k0]
+        
+        # 构造lambda_beta的局部候选（对数尺度+邻域）
+        neighbor_lower <- lambda_beta_vec[max(1, k0 - 1)]
+        neighbor_upper <- lambda_beta_vec[min(length(lambda_beta_vec), k0 + 1)]
+        scale_set_beta <- c(0.8, 1.0, 1.25)
+        lb_scaled <- lb_0 * scale_set_beta
+        lb_candidates <- sort(unique(pmax(0, c(lb_0, neighbor_lower, neighbor_upper, lb_scaled))))
+        
+        for (lb in lb_candidates) {
+            if (use_sparse && !is.null(lb) && lb > 0) {
+                res <- try(TransCox_Sparse(
+                    CovData = as.matrix(CovData),
+                    cumH = cumH,
+                    hazards = hazards,
+                    status = status,
+                    estR = Pout$estR,
+                    Xinn = Pout$Xinn,
+                    lambda1 = l1,
+                    lambda2 = l2,
+                    lambda_beta = lb,
+                    learning_rate = learning_rate,
+                    nsteps = nsteps,
+                    verbose = FALSE
+                ), silent = TRUE)
+                if (inherits(res, "try-error")) next
+                eta_loc <- res[[1]]; xi_loc <- res[[2]]; beta_loc <- res[[3]]
+                newBeta_loc <- beta_loc
+            } else {
+                # 当lb==0时，使用原始版本（不加beta_t稀疏惩罚）
+                test <- TransCox(
+                    CovData = as.matrix(CovData),
+                    cumH = cumH,
+                    hazards = hazards,
+                    status = status,
+                    estR = Pout$estR,
+                    Xinn = Pout$Xinn,
+                    lambda1 = l1,
+                    lambda2 = l2,
+                    learning_rate = learning_rate,
+                    nsteps = nsteps
+                )
+                eta_loc <- test[[1]]; xi_loc <- test[[2]]
+                newBeta_loc <- Pout$estR + eta_loc
+            }
+            
+            newHaz_loc <- Pout$dQ$dQ + xi_loc
+            bic_loc <- GetBIC(status = status,
+                              CovData = CovData,
+                              hazards = hazards,
+                              newBeta = newBeta_loc,
+                              newHaz = newHaz_loc,
+                              eta = eta_loc,
+                              xi = xi_loc,
+                              cutoff = 1e-5,
+                              lambda1 = l1,
+                              lambda2 = l2,
+                              lambda_beta = lb)
+            
+            if (!is.na(bic_loc) && bic_loc < current_best_bic) {
+                current_best_bic <- bic_loc
+                best_lambda1 <- l1
+                best_lambda2 <- l2
+                best_lambda_beta <- lb
+            }
+        }
     }
     
     # 计算最优参数下的结果
-    if (verbose) cat("使用最优参数计算最终结果...\n")
-    
     if (use_sparse && best_lambda_beta > 0) {
         final_result <- TransCox_Sparse(
             CovData = as.matrix(CovData),
@@ -269,9 +389,7 @@ SelParam_By_BIC <- function(primData, auxData, cov = c("X1", "X2"),
         n_features <- length(cov)
         use_sparse <- (n_features > n_samples / 2)
         
-        if (use_sparse) {
-            cat("检测到高维数据，自动使用稀疏版本\n")
-        }
+        # 自动选择稀疏版本
     }
     
     if (use_sparse) {
@@ -297,13 +415,8 @@ SelParam_By_BIC <- function(primData, auxData, cov = c("X1", "X2"),
         
     } else {
         # 使用原始版本
-        # [原始代码保持不变]
-        TransCox <- NULL
-        .onLoad <- function(libname, pkgname) {
-            tf <<- reticulate::import("tensorflow", delay_load = TRUE)
-            tfp <<- reticulate::import("tensorflow_probability", delay_load = TRUE)
-            np <<- reticulate::import("numpy", delay_load = TRUE)
-            source_python(system.file("python", "TransCoxFunction.py", package = "TransCox"))
+        if (!exists("TransCox")) {
+            reticulate::source_python(system.file("python", "TransCoxFunction.py", package = "TransCox"))
         }
         
         Cout <- GetAuxSurv(auxData, cov = cov)
@@ -345,7 +458,10 @@ SelParam_By_BIC <- function(primData, auxData, cov = c("X1", "X2"),
                                  newHaz = newHaz,
                                  eta = test$eta,
                                  xi = test$xi,
-                                 cutoff = 1e-5)
+                                 cutoff = 1e-5,
+                                 lambda1 = lambda1_vec[i],
+                                 lambda2 = lambda2_vec[j],
+                                 lambda_beta = NULL)
                 
                 BICmat[i,j] <- BICvalue
             }

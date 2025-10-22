@@ -1,3 +1,19 @@
+#' 基于BIC的学习率检查和选择
+#' 
+#' @description 
+#' 使用BIC准则选择最优学习率，固定其他参数
+#' 
+#' @param primData 目标域数据
+#' @param auxData 源域数据
+#' @param cov 协变量名称向量
+#' @param statusvar 状态变量名称
+#' @param lr_vec 学习率候选值向量
+#' @param l1 lambda1参数（固定）
+#' @param l2 lambda2参数（固定）
+#' @param nsteps 优化步数
+#' 
+#' @return 包含最优学习率和BIC值的列表
+#' @export
 CheckLR_BIC <- function(primData, auxData, cov = c("X1", "X2"),
                         statusvar = "status",
                         lr_vec = seq(0.001, 0.004, by = 0.0005),

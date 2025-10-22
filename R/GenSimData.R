@@ -1,3 +1,14 @@
+#' 生成模拟生存数据
+#' 
+#' @description 
+#' 生成用于TransCox模型测试的模拟生存数据，包括目标域和源域数据
+#' 
+#' @param nprim 目标域样本数
+#' @param naux 源域样本数
+#' @param setting 模拟设置编号(1-4)，控制不同的参数和分布设置
+#' 
+#' @return 包含目标域和源域数据的列表
+#' @export
 GenSimData <- function(nprim = 200,
                     naux = 500,
                     setting = 1) {

@@ -3,12 +3,26 @@ import( survival )
 importFrom("utils", "setTxtProgressBar", "txtProgressBar")
 export(
     GetAuxSurv,
+    GetAuxSurv_Sparse,
     GetPrimaryParam,
     runTransCox_one,
+    runTransCox_Sparse,
     runBtsp_transCox,
     SelLR_By_BIC,
     SelParam_By_BIC,
-    GenSimData
+    SelParam_By_BIC_Sparse,
+    CheckLR_BIC,
+    GenSimData,
+    GetBIC,
+    GetLogLike,
+    GetCoverage,
+    deltaQ,
+    dQtocumQ,
+    train_transcox_sparse_auto,
+    train_cox_lasso,
+    generate_sparse_survival_data,
+    calculate_cindex,
+    predict_transcox_sparse
 )
 
 

@@ -1,7 +1,26 @@
+#' 计算目标域累积风险函数
+#' 
+#' @description 
+#' 基于源域估计的参数，计算目标域数据的累积风险函数
+#' 
+#' @param primData 目标域数据，包含time和status列
+#' @param q 从源域估计得到的风险参数，包含breakPoints和cumHazards
+#' 
+#' @return 包含dQ、cumQ和t的数据框
+#' @export
 deltaQ <- function(primData, q) {
     #### get cumulative hazards for primary data
     #### from the combined data
-    obsData <- primData[primData$status == 2, ]
+    # 检测状态编码格式并获取事件数据
+    if (all(primData$status %in% c(0, 1))) {
+        # 0/1编码，事件为1
+        obsData <- primData[primData$status == 1, ]
+    } else if (all(primData$status %in% c(1, 2))) {
+        # 1/2编码，事件为2
+        obsData <- primData[primData$status == 2, ]
+    } else {
+        stop("不支持的状态编码，请使用0/1或1/2编码")
+    }
     obsData <- obsData[order(obsData$time), ]
     newQ <- data.frame(dQ  = rep(NA, nrow(obsData)),
                        cumQ = rep(NA, nrow(obsData)),

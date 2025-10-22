@@ -82,8 +82,9 @@ def TransCox_Sparse(CovData, cumH, hazards, status, estR, Xinn,
     estR_np = np.float64(estR).reshape((len(estR),))
     status_np = np.float64(status).reshape((len(status),))
     
-    # 找到事件发生的样本索引
-    smallidx = tf.where(status_np == 2)[:, 0]  # 提取第一列索引
+    # 找到事件发生的样本索引（兼容0/1与1/2编码）
+    event_code = 2 if np.max(status_np) > 1 else 1
+    smallidx = tf.where(status_np == event_code)[:, 0]
     
     # 存储损失历史用于收敛检查
     loss_history = []
@@ -161,18 +162,48 @@ def TransCox_Sparse(CovData, cumH, hazards, status, estR, Xinn,
             gradients = tape.gradient(loss_value, [eta, xi, beta_t])
             optimizer.apply_gradients(zip(gradients, [eta, xi, beta_t]))
             
-            # 对beta_t应用软阈值化以实现稀疏性
+            # 对所有参数应用软阈值化以实现稀疏性
             # 软阈值化: sign(x) * max(0, |x| - threshold)
-            # 使用适中的阈值以产生平衡的稀疏性
-            threshold = lambda_beta * 0.05  # 调整阈值倍数以获得更平衡的稀疏性
+            
+            # 对beta_t应用软阈值化
+            threshold_beta = lambda_beta * 0.1  # 进一步降低阈值，确保不过度稀疏化
             beta_t_sign = tf.sign(beta_t)
             beta_t_abs = tf.abs(beta_t)
-            beta_t_thresholded = beta_t_sign * tf.maximum(0.0, beta_t_abs - threshold)
+            beta_t_thresholded = beta_t_sign * tf.maximum(0.0, beta_t_abs - threshold_beta)
             beta_t.assign(beta_t_thresholded)
+            
+            # 对eta应用软阈值化
+            threshold_eta = lambda1 * 0.05  # 进一步降低阈值，确保不过度稀疏化
+            eta_sign = tf.sign(eta)
+            eta_abs = tf.abs(eta)
+            eta_thresholded = eta_sign * tf.maximum(0.0, eta_abs - threshold_eta)
+            eta.assign(eta_thresholded)
+            
+            # 对xi应用软阈值化
+            threshold_xi = lambda2 * 0.05  # 进一步降低阈值，确保不过度稀疏化
+            xi_sign = tf.sign(xi)
+            xi_abs = tf.abs(xi)
+            xi_thresholded = xi_sign * tf.maximum(0.0, xi_abs - threshold_xi)
+            xi.assign(xi_thresholded)
             
         else:
             gradients = tape.gradient(loss_value, [eta, xi])
             optimizer.apply_gradients(zip(gradients, [eta, xi]))
+            
+            # 即使在非稀疏模式下也应用软阈值化以获得稀疏性
+            # 对eta应用软阈值化
+            threshold_eta = lambda1 * 0.01  # 更轻微的阈值化
+            eta_sign = tf.sign(eta)
+            eta_abs = tf.abs(eta)
+            eta_thresholded = eta_sign * tf.maximum(0.0, eta_abs - threshold_eta)
+            eta.assign(eta_thresholded)
+            
+            # 对xi应用软阈值化
+            threshold_xi = lambda2 * 0.01  # 更轻微的阈值化
+            xi_sign = tf.sign(xi)
+            xi_abs = tf.abs(xi)
+            xi_thresholded = xi_sign * tf.maximum(0.0, xi_abs - threshold_xi)
+            xi.assign(xi_thresholded)
         
         # 记录损失
         loss_history.append(loss_value.numpy())
@@ -251,7 +282,9 @@ def TransCox(CovData, cumH, hazards, status, estR, Xinn,
         dq_np = np.float64(hazards).reshape((len(hazards),))
         estR2 = np.float64(estR).reshape((len(estR),))
         status_np = np.float64(status).reshape((len(status),))
-        smallidx = tf.where(status_np == 2)[:, 0]  # 提取第一列索引
+        # 兼容0/1与1/2状态编码
+        event_code = 2 if np.max(status_np) > 1 else 1
+        smallidx = tf.where(status_np == event_code)[:, 0]
         
         loss_fn = lambda: tf.math.negative(
             tf.reduce_sum(tf.gather(tf.math.reduce_sum(tf.math.multiply(ppData, tf.math.add(estR2, eta)), axis=1), indices=smallidx)) + 

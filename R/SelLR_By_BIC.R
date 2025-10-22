@@ -1,3 +1,19 @@
+#' 基于BIC的学习率和步数联合选择
+#' 
+#' @description 
+#' 使用BIC准则同时选择最优学习率和优化步数
+#' 
+#' @param primData 目标域数据
+#' @param auxData 源域数据
+#' @param cov 协变量名称向量
+#' @param statusvar 状态变量名称
+#' @param lambda1 lambda1参数（固定）
+#' @param lambda2 lambda2参数（固定）
+#' @param learning_rate_vec 学习率候选值向量
+#' @param nsteps_vec 优化步数候选值向量
+#' 
+#' @return 包含最优学习率、步数和BIC矩阵的列表
+#' @export
 SelLR_By_BIC <- function(primData, auxData, cov = c("X1", "X2"),
                          statusvar = "status",
                          lambda1 = 0.1,
@@ -13,7 +29,9 @@ SelLR_By_BIC <- function(primData, auxData, cov = c("X1", "X2"),
         tf <<- reticulate::import("tensorflow", delay_load = TRUE)
         tfp <<- reticulate::import("tensorflow_probability", delay_load = TRUE)
         np <<- reticulate::import("numpy", delay_load = TRUE)
-        source_python(system.file("python", "TransCoxFunction.py", package = "TransCox"))
+        if (!exists("TransCox")) {
+    reticulate::source_python(system.file("python", "TransCoxFunction.py", package = "TransCox"))
+}
     }
 
     Cout <- GetAuxSurv(auxData, cov = cov)
@@ -50,13 +68,16 @@ SelLR_By_BIC <- function(primData, auxData, cov = c("X1", "X2"),
             newHaz = Pout$dQ$dQ + test$xi
 
             BICvalue <- GetBIC(status = status,
-                               CovData = CovData,
-                               hazards = hazards,
-                               newBeta = newBeta,
-                               newHaz = newHaz,
-                               eta = test$eta,
-                               xi = test$xi,
-                               cutoff = 1e-5)
+                           CovData = CovData,
+                           hazards = hazards,
+                           newBeta = newBeta,
+                           newHaz = newHaz,
+                           eta = test$eta,
+                           xi = test$xi,
+                           cutoff = 1e-5,
+                           lambda1 = lambda1,
+                           lambda2 = lambda2,
+                           lambda_beta = NULL)
 
             BICmat[i,j] <- BICvalue
         }

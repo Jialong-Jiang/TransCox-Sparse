@@ -1,3 +1,17 @@
+#' 运行单次TransCox模型训练
+#' 
+#' @description 
+#' 使用Python后端运行单次TransCox模型训练，估计eta和xi参数
+#' 
+#' @param Pout 包含目标域数据和源域参数的预处理结果
+#' @param l1 eta的L1惩罚参数
+#' @param l2 xi的L1惩罚参数  
+#' @param learning_rate 学习率
+#' @param nsteps 优化步数
+#' @param cov 协变量名称向量
+#' 
+#' @return 包含eta和xi的列表
+#' @export
 runTransCox_one <- function(Pout, l1 = 1, l2 = 1, learning_rate = 0.004, nsteps = 200,
                             cov = c('X1', 'X2')){
     # require("reticulate")
@@ -8,7 +22,9 @@ runTransCox_one <- function(Pout, l1 = 1, l2 = 1, learning_rate = 0.004, nsteps 
         tf <<- reticulate::import("tensorflow", delay_load = TRUE)
         tfp <<- reticulate::import("tensorflow_probability", delay_load = TRUE)
         np <<- reticulate::import("numpy", delay_load = TRUE)
-        source_python(system.file("python", "TransCoxFunction.py", package = "TransCox"))
+        if (!exists("TransCox")) {
+    reticulate::source_python(system.file("python", "TransCoxFunction.py", package = "TransCox"))
+}
     }
 
     CovData = Pout$primData[, cov]
