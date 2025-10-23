@@ -128,18 +128,38 @@ result_auto <- runTransCox_Sparse(
 
 ```
 TransCox-Sparse/
-├── R/                          # R函数
-│   ├── runTransCox_Sparse.R   # 主要接口函数
-│   ├── SelParam_By_BIC_Sparse.R # 稀疏参数选择
-│   └── GetAuxSurv_Sparse.R    # 稀疏源域分析
-├── inst/python/               # Python优化引擎
-│   ├── TransCoxFunction.py    # 原始优化函数
-│   └── TransCoxFunction_Sparse.py # 稀疏优化函数
-├── tests/                     # 测试文件
-│   ├── test_sparse_effect.R   # 稀疏效果测试
-│   └── test_integration.R     # 集成测试
-├── TransCox_用户手册.md       # 详细用户手册
-└── README.md                  # 本文件
+├── R/                              # R函数库
+│   ├── runTransCox_Sparse.R       # 🎯 主要接口函数（稀疏版本）
+│   ├── SelParam_By_BIC_Sparse.R   # 📊 稀疏参数选择（含性能优化）
+│   ├── GetAuxSurv_Sparse.R        # 🔄 稀疏源域分析
+│   ├── GetBIC.R                   # 📈 BIC计算函数
+│   ├── GetPrimaryParam.R          # 🎯 目标域参数估计
+│   ├── GetAuxSurv.R               # 🔄 源域参数估计（原始版本）
+│   ├── deltaQ.R                   # ⚙️ 风险增量计算
+│   ├── evaluation_metrics.R       # 📊 模型评估指标
+│   ├── generate_sparse_survival_data.R # 🧪 稀疏生存数据生成
+│   ├── cox_lasso_model.R          # 🔧 Cox Lasso基准模型
+│   └── runTransCox_one.R          # 🔧 单次运行函数（向后兼容）
+├── inst/python/                   # Python优化引擎
+│   ├── TransCoxFunction_Sparse.py # ⚡ 稀疏优化函数（TensorFlow）
+│   └── TransCoxFunction.py        # ⚡ 原始优化函数（TensorFlow）
+├── man/                           # R文档
+│   ├── runTransCox_one.Rd         # 函数文档
+│   ├── SelParam_By_BIC.Rd         # 参数选择文档
+│   └── ...                       # 其他函数文档
+├── test/                          # 测试文件
+│   ├── bic_vs_brute_force_experiment.R # BIC vs 暴力搜索对比
+│   └── test_optimized.R          # 性能优化测试
+├── docs/                          # 📚 文档目录
+│   ├── user_manual.md             # 用户手册
+│   ├── api_reference.md           # API参考
+│   ├── performance_guide.md       # 性能优化指南
+│   └── examples/                  # 示例代码
+├── demo_transcox_optimal.R        # 🚀 完整演示脚本
+├── PERFORMANCE_OPTIMIZATION_SUMMARY.md # 📈 性能优化总结
+├── DESCRIPTION                    # R包描述文件
+├── NAMESPACE                      # R包命名空间
+└── README.md                      # 📖 项目说明（本文件）
 ```
 
 ## 🔬 算法原理

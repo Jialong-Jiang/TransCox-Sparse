@@ -55,7 +55,7 @@ test_env.R
 data/*.RData
 
 # 文档构建输出
-docs/
+
 doc/
 Meta/
 
