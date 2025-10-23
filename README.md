@@ -166,14 +166,12 @@ L(β) = -log-likelihood + λ₁||η||₁ + λ₂||ξ||₁ + λ_β||β_t||₁
 - [原始TransCox论文](https://www.tandfonline.com/doi/full/10.1080/01621459.2023.2210336) -
 
 
-## 🧪 测试
+## 🧪 demo测试
 
 ```r
 # 运行稀疏效果测试
-source("tests/test_sparse_effect.R")
+source("demo_transcox_optimal.R")
 
-# 运行完整集成测试
-source("tests/test_integration.R")
 ```
 
 ## 🤝 贡献
