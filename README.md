@@ -163,9 +163,8 @@ L(β) = -log-likelihood + λ₁||η||₁ + λ₂||ξ||₁ + λ_β||β_t||₁
 
 ## 📚 文档
 
-- [详细用户手册](TransCox_用户手册.md) - 完整的使用指南和最佳实践
-- [原始TransCox论文](https://link-to-paper) - 理论基础
-- [API文档](man/) - 函数参考
+- [原始TransCox论文](https://www.tandfonline.com/doi/full/10.1080/01621459.2023.2210336) -
+
 
 ## 🧪 测试
 
@@ -181,13 +180,7 @@ source("tests/test_integration.R")
 
 欢迎提交Issue和Pull Request！
 
-### 开发环境设置
 
-1. Fork本仓库
-2. 创建特性分支: `git checkout -b feature/your-feature`
-3. 提交更改: `git commit -am 'Add some feature'`
-4. 推送分支: `git push origin feature/your-feature`
-5. 提交Pull Request
 
 ## 📄 许可证
 
