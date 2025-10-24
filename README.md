@@ -175,7 +175,9 @@ $$
 
 #### 具体参数及含义
 - $L(\eta, \xi)$：目标域的联合负对数似然，捕捉系数差异和基线风险调整的拟合效果：
-$$L(\eta, \xi) = -\sum_{i=1}^N \left[ \delta_i \big(x_i^T (\hat{\beta}^s + \eta) + \log \Delta \hat{H}_0^s(y_i) + \xi_i\big) \right]+ \sum_{i=1}^N \left[ \sum_{j=1}^{n_0} \big(\Delta \hat{H}_0^s(\tilde{y}_j) + \xi_j I(\tilde{y}_j \le y_i)\big)\exp\{x_i^T (\hat{\beta}^s + \eta)\} \right]+ \lambda_\eta \|\eta\|_1 + \lambda_\xi \|\xi\|_1$$
+$$
+L(\eta, \xi) = -\sum_{i=1}^N \left[ \delta_i \big(x_i^T (\hat{\beta}^s + \eta) + \log \Delta \hat{H}_0^s(y_i) + \xi_i\big) \right]+ \sum_{i=1}^N \left[ \sum_{j=1}^{n_0} \big(\Delta \hat{H}_0^s(\tilde{y}_j) + \xi_j I(\tilde{y}_j \le y_i)\big)\exp\{x_i^T (\hat{\beta}^s + \eta)\} \right]+ \lambda_\eta \|\eta\|_1 + \lambda_\xi \|\xi\|_1
+$$
 - $x_i$：第 $i$ 个样本的协变量向量。  
 - $\hat{\beta}^s$：源域系数（由 `coxph` 估计）。  
 - $\eta$：系数差异，调整 $\hat{\beta}^s$ 到目标域系数 $\beta_t = \hat{\beta}^s + \eta$。  
