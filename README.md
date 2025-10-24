@@ -197,7 +197,7 @@ L1 惩罚确保稀疏迁移，只调整重要协变量和时间点。  优化目
 ### 2. 高维稀疏 TransCox_sparse 模型
 
 #### 优化目标
-为处理高维稀疏数据（如基因组数据，$p \gg n$），TransCox_sparse 模型扩展优化目标为：
+为处理高维稀疏数据（如基因组数据，$p >> n$），TransCox_sparse 模型扩展优化目标为：
 
 $$
 \min L(\eta, \xi, \lambda_\eta, \lambda_\xi, \lambda_\beta)
@@ -208,7 +208,7 @@ $$
 - $L(\eta, \xi)$：同原始模型，目标域负对数似然，捕捉 $\eta$ 和 $\xi(t)$ 的拟合效果。  
 - $\lambda_\eta \|\eta\|_1$：控制 $\eta$ 的稀疏性，确保迁移差异集中在少量关键协变量。  
 - $\lambda_\xi \|\xi\|_1$：控制 $\xi(t)$ 的稀疏性，确保基线风险调整集中在关键时间点。  
-- $\lambda_\beta \|\hat{\beta}^s + \eta\|_1$：新增 L1 惩罚，作用于目标域系数 $\beta_t = \hat{\beta}^s + \eta$，诱导 $\beta_t$ 整体稀疏，适合高维场景（例如，当 $p = 1000$ 时，非零系数目标 < 50）。  
+- $\lambda_\beta \|\hat{\beta}^s + \eta\|_1$：新增 L1 惩罚，作用于目标域系数 $\beta_t = \hat{\beta}^s + \eta$，诱导 $\beta_t$ 整体稀疏，适合高维场景。  
 - $\lambda_\beta$：正则化参数，与 $\lambda_\eta, \lambda_\xi$ 一起通过 BIC 调参。  
 - $\hat{\beta}^s$：源域系数，改进为通过 Lasso-Cox 估计：
   $$
