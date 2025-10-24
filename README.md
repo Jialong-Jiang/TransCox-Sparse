@@ -204,13 +204,13 @@ $$
 = L(\eta, \xi) + \lambda_\eta \|\eta\|_1 + \lambda_\xi \|\xi\|_1 + \lambda_\beta \|\hat{\beta}^s + \eta\|_1
 $$
 
-#### 具体参数及含义
+#### 具体参数
 - $L(\eta, \xi)$：同原始模型，目标域负对数似然，捕捉 $\eta$ 和 $\xi(t)$ 的拟合效果。  
 - $\lambda_\eta \|\eta\|_1$：控制 $\eta$ 的稀疏性，确保迁移差异集中在少量关键协变量。  
 - $\lambda_\xi \|\xi\|_1$：控制 $\xi(t)$ 的稀疏性，确保基线风险调整集中在关键时间点。  
 - $\lambda_\beta \|\hat{\beta}^s + \eta\|_1$：新增 L1 惩罚，作用于目标域系数 $\beta_t = \hat{\beta}^s + \eta$，诱导 $\beta_t$ 整体稀疏，适合高维场景。  
 - $\lambda_\beta$：正则化参数，与 $\lambda_\eta, \lambda_\xi$ 一起通过 BIC 调参。  
-- $\hat{\beta}^s$：源域系数，改进为通过 Lasso-Cox 估计：$\min -l(\beta_s) + \lambda_s \|\beta_s\|_1$ 确保 $\beta_s$ 本身稀疏，减少高维下的过拟合。
+- $\hat{\beta}^s$：源域系数，改进为通过 Lasso-Cox 估计： $\min -l(\beta_s) + \lambda_s \Vert\beta_s\Vert_1$，确保 $\beta_s$ 本身稀疏，减少高维下的过拟合。
 
 #### 含义
 - **新增项 $\lambda_\beta \|\hat{\beta}^s + \eta\|_1$**：原始模型仅惩罚 $\eta$，无法保证 $\beta_t$ 整体稀疏（尤其当 $\hat{\beta}^s$ 非稀疏时）。新增项直接约束 $\beta_t$，类似 Lasso-Cox 的稀疏性，适合高维稀疏数据（如基因数据，只有少数特征相关）。  
