@@ -172,12 +172,13 @@ TransCox-Sparse/
 $$
 \min L(\eta, \xi, \lambda_\eta, \lambda_\xi) = L(\eta, \xi) + \lambda_\eta \|\eta\|_1 + \lambda_\xi \|\xi\|_1
 $$
-
-#### 具体参数及含义
-- $L(\eta, \xi)$：目标域的联合负对数似然，捕捉系数差异和基线风险调整的拟合效果：
+其中
 $$
 L(\eta, \xi) = -\sum_{i=1}^N \left[ \delta_i \big(x_i^T (\hat{\beta}^s + \eta) + \log \Delta \hat{H}_0^s(y_i) + \xi_i\big) \right]+\sum_{i=1}^N \left[ \sum_{j=1}^{n_0} \big(\Delta \hat{H}_0^s(\tilde{y}_j)+\xi_j I(\tilde{y}_j \le y_i)\big)\exp\{x_i^T (\hat{\beta}^s + \eta)\} \right]
 $$
+
+#### 具体参数
+- $L(\eta, \xi)$：目标域的联合负对数似然，捕捉系数差异和基线风险调整的拟合效果：
 - $x_i$：第 $i$ 个样本的协变量向量。  
 - $\hat{\beta}^s$：源域系数（由 `coxph` 估计）。  
 - $\eta$：系数差异，调整 $\hat{\beta}^s$ 到目标域系数 $\beta_t = \hat{\beta}^s + \eta$。  
@@ -189,8 +190,7 @@ $$
 
 #### 含义
 通过优化 $\eta$ 和 $\xi(t)$，模型从源域借用信息，调整到目标域，处理时间变化异质性（如不同医疗队列的治疗效果差异）。  
-L1 惩罚确保稀疏迁移，只调整重要协变量和时间点，适合低维场景（$p \ll n$，如论文中的 $p = 5$）。  
-优化目标通过联合似然捕捉目标域的生存分布，同时利用源域信息提高估计精度。
+L1 惩罚确保稀疏迁移，只调整重要协变量和时间点。  优化目标通过联合似然捕捉目标域的生存分布，同时利用源域信息提高估计精度。
 
 ---
 
