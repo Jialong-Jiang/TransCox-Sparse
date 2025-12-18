@@ -1,0 +1,3 @@
+quick_start             Run a single demonstration of TransCox-Sparse with visualizations
+reproduce_simulation    Reproduce the 100-run Monte Carlo simulation study
+view_precomputed_results    Load and view pre-computed simulation results (CSVs and Plots)

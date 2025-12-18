@@ -1,0 +1,30 @@
+Package: TransCoxSparse
+Title: Transfer Learning R Package for High-Dimensional Sparse Cox Model Survival Analysis
+Version: 0.0.0.9000
+Authors@R: 
+    person("First", "Last", , "first.last@example.com", role = c("aut", "cre"))
+Description: TransCox-Sparse is an enhanced version of the TransCox package, designed for high-dimensional sparse survival analysis. It uses transfer learning to improve Cox regression model performance on a target (primary) domain by leveraging source (auxiliary) domain data, especially suitable for feature selection and sparse modeling in high-dimensional settings (p >> n).
+License: MIT + file LICENSE
+Imports: 
+    doParallel,
+    glmnet,
+    ipred,
+    parallel,
+    reticulate,
+    stats,
+    survival,
+    timeROC,
+    graphics,
+    grDevices,
+    utils
+Encoding: UTF-8
+Roxygen: list(markdown = TRUE)
+RoxygenNote: 7.3.3
+Suggests: 
+    dplyr,
+    future.apply,
+    ggplot2,
+    knitr,
+    reshape2,
+    survminer,
+    TransCox
