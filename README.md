@@ -54,6 +54,10 @@ use_condaenv("TransCoxEnvi")
 # Clone repository
 if (!require("devtools")) install.packages("devtools")
 devtools::install_github("Jialong-Jiang/TransCox-Sparse")
+# if devtools fails try
+if (!require("remotes")) install.packages("remotes")
+remotes::install_github("Jialong-Jiang/TransCox-Sparse")
+
 
 # Set working directory and load functions
 library(reticulate)
@@ -67,7 +71,7 @@ library(TransCoxSparse)
 
 # Run a single demonstration with visualizations
 demo("quick_start", package = "TransCoxSparse")  # Simple demo takes about 3-5 minutes
-demo("reproduce_simulation.R", package = "TransCoxSparse")  # 100-run Monte Carlo simulation takes about 20-30 minutes
+demo("reproduce_simulation.R", package = "TransCoxSparse")  # 100-run Monte Carlo simulation takes about 1.5h 
 
 # You can skip to the precomuted results by running the following code
 
