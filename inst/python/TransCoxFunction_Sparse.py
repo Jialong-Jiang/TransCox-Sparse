@@ -15,7 +15,7 @@ import tensorflow_probability as tfp
 import numpy as np
 
 def TransCox_Sparse(CovData, cumH, hazards, status, estR, Xinn, 
-                    lambda1, lambda2, lambda_beta = seq(0.01, 0.025,0.05,0.1,0.2,0.5),
+                    lambda1, lambda2, lambda_beta=[0.01, 0.025,0.05,0.1,0.2,0.5],
                     learning_rate=0.004, nsteps=200,
                     tolerance=1e-6, verbose=True):
     
