@@ -47,6 +47,9 @@ install.packages(c("survival", "glmnet", "Matrix", "reticulate"))
 # Configure Python environment
 library(reticulate)
 use_condaenv("TransCoxEnvi")
+use_python(r"D:\anaconda3\envs\TransCoxEnvi\python.exe") #change to your dir
+ 
+
 ```
 
 3. **Download and Usage**
@@ -61,14 +64,14 @@ remotes::install_github("Jialong-Jiang/TransCox-Sparse")
 
 # Set working directory and load functions
 library(reticulate)
-source_python("inst/python/TransCoxFunction_Sparse.py")
+    source_python(system.file("python", "TransCoxFunction_Sparse.py", package = "TransCoxSparse"))
 ```
 
 4. **Demos**
 
 ```r
 library(TransCoxSparse)
-
+source_python(system.file("python", "TransCoxFunction_Sparse.py", package = "TransCoxSparse"))
 # Run a single demonstration with visualizations
 demo("quick_start", package = "TransCoxSparse")  # Simple demo takes about 3-5 minutes
 demo("reproduce_simulation.R", package = "TransCoxSparse")  # 100-run Monte Carlo simulation takes about 1.5h 
