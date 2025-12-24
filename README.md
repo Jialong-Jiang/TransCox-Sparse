@@ -1,8 +1,8 @@
 # TransCox-Sparse: Transfer Learning R Package for High-Dimensional Sparse Survival Analysis
 
 [![R](https://img.shields.io/badge/R-%3E%3D4.4.3-blue.svg)](https://www.r-project.org/)
-[![Python](https://img.shields.io/badge/Python-3.7%2B-blue.svg)](https://www.python.org/)
-[![TensorFlow](https://img.shields.io/badge/TensorFlow-2.10.0-orange.svg)](https://tensorflow.org/)
+[![Python](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://www.python.org/)
+[![TensorFlow](https://img.shields.io/badge/TensorFlow-2.18.0-orange.svg)](https://tensorflow.org/)
 
 ## 📖 Introduction
 
@@ -23,19 +23,19 @@ The project was initiated because the original TransCox did not handle high-dime
 ### Requirements
 
 - R >= 4.4.3
-- Python >= 3.7
-- TensorFlow 2.10.0
+- Python >= 3.10
+- TensorFlow 2.18.0
 
-### Installation Steps (Prioritize official docs: [TransCox GitHub Repository](https://github.com/ziyili20/TransCox))
+### Installation Steps
 
 1. **Python Environment Setup**
 ```bash
 # Create conda environment
-conda create -n TransCoxEnvi python=3.8
+conda create -n TransCoxEnvi python=3.10
 conda activate TransCoxEnvi
 
 # Install necessary packages
-conda install tensorflow=2.10.0
+conda install tensorflow=2.18.0
 conda install numpy pandas
 ```
 
