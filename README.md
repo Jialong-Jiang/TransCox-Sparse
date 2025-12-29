@@ -47,7 +47,7 @@ install.packages(c("survival", "glmnet", "Matrix", "reticulate"))
 # Configure Python environment
 library(reticulate)
 use_condaenv("TransCoxEnvi")
-use_python(r"D:\anaconda3\envs\TransCoxEnvi\python.exe") #change to your dir
+use_python("D:/anaconda3/envs/TransCoxEnvi/python.exe", required = TRUE)#change to your dir
  
 
 ```
@@ -64,7 +64,7 @@ remotes::install_github("Jialong-Jiang/TransCox-Sparse")
 
 # Set working directory and load functions
 library(reticulate)
-    source_python(system.file("python", "TransCoxFunction_Sparse.py", package = "TransCoxSparse"))
+source_python(system.file("python", "TransCoxFunction_Sparse.py", package = "TransCoxSparse"))
 ```
 
 4. **Demos**

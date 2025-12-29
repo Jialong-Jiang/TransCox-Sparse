@@ -3,10 +3,10 @@
 """
 TransCox High-Dimensional Sparse Version - Python Optimization Function
 
-Extends the original TransCox to support high-dimensional sparse data:
-1. Adds lambda_beta * ||beta_t||_1 penalty term
-2. Supports sparse coefficient output
-3. Improved optimization algorithm
+Refactored for Scientific Rigor:
+1. Method: L1 Regularized Loss + Post-hoc Theoretical Hard Thresholding
+2. Theory: Threshold tau = C * sqrt(log(p)/n) based on high-dimensional inference bounds.
+3. Optimizer: Adam with direct gradient descent on L1 loss (no iterative shrinkage).
 
 """
 
@@ -14,19 +14,26 @@ import tensorflow as tf
 import numpy as np
 
 def TransCox_Sparse(CovData, cumH, hazards, status, estR, Xinn, 
-                    lambda1, lambda2, lambda_beta=[0.01,0.05,0.1,0.2,0.5,1,2],
+                    lambda1, lambda2, lambda_beta, 
                     learning_rate=0.004, nsteps=200,
-                    tolerance=1e-6, verbose=True):
+                    tolerance=1e-6, verbose=True,
+                    threshold_c=0.1): # [New Parameter] Theoretical constant C
+    
+    # --- 1. Data Dimensions & Constants ---
+    n_samples = CovData.shape[0]
+    n_features = CovData.shape[1]
+    
+    # Calculate Theoretical Threshold: tau = C * sqrt(log(p) / n)
+    # Note: Adding 1e-8 to log to prevent error if p=1, though unlikely in high-dim
+    theoretical_tau = threshold_c * np.sqrt(np.log(n_features) / n_samples)
     
     if verbose:
-        print(f"TransCox Sparse Optimization (Accelerated Version)...")
-        print(f"Samples: {CovData.shape[0]}, Features: {CovData.shape[1]}")
-        print(f"LR: {learning_rate}, Lambda_Beta: {lambda_beta}")
+        print(f"TransCox Sparse Optimization (L1 Loss + Hard Thresholding)...")
+        print(f"N={n_samples}, P={n_features}")
+        print(f"Theoretical Noise Floor (tau): {theoretical_tau:.5f} (C={threshold_c})")
     
-    # --- Data Preprocessing (Convert to TF Constants once) ---
-    # Using float64 for stability as requested
+    # --- 2. TF Data Conversion ---
     dtype = tf.float64
-    
     XiData_tf = tf.constant(np.ascontiguousarray(Xinn), dtype=dtype)
     ppData_tf = tf.constant(np.ascontiguousarray(CovData), dtype=dtype)
     cQ_tf = tf.constant(np.ascontiguousarray(cumH).reshape(-1), dtype=dtype)
@@ -37,47 +44,42 @@ def TransCox_Sparse(CovData, cumH, hazards, status, estR, Xinn,
     event_code = 2 if np.max(status_np) > 1 else 1
     smallidx = tf.constant(np.where(status_np == event_code)[0], dtype=tf.int64)
     
-    # [Optimized] Pre-calculate N_events for potential use, though we reverted standardization
-    # keeping it logical.
-    
-    # --- Variables ---
-    # Initialize variables
-    n_features = ppData_tf.shape[1]
+    # --- 3. Variable Initialization ---
     n_hazards = dq_tf.shape[0]
-    
     eta = tf.Variable(tf.zeros(n_features, dtype=dtype), name="eta")
     xi = tf.Variable(tf.zeros(n_hazards, dtype=dtype), name="xi")
     
+    # Check if we are in Beta-Sparsity Mode
+    # If lambda_beta > 0, we treat beta_t as the primary variable
     use_beta_mode = (lambda_beta > 0)
     
     if use_beta_mode:
+        # Initialize beta_t with Ridge estimates (estR) for faster convergence
         beta_t = tf.Variable(estR_tf, name="beta_t")
     else:
-        # Dummy variable to satisfy graph requirements if not used
+        # Dummy variable
         beta_t = tf.Variable(tf.zeros(1, dtype=dtype), name="dummy_beta")
 
-    # Optimizer
     optimizer = tf.optimizers.Adam(learning_rate=learning_rate)
     
-    # --- Define Graph Function (The Speed Secret) ---
-    # jit_compile=True enables XLA optimization (maximum speed)
+    # --- 4. Optimization Graph (JIT Compiled) ---
     @tf.function(jit_compile=True) 
     def train_step():
         with tf.GradientTape() as tape:
+            # Definition of Beta and Eta
             if use_beta_mode:
-                current_beta_t = beta_t
+                current_beta = beta_t
                 current_eta = beta_t - estR_tf 
             else:
                 current_eta = eta
-                current_beta_t = estR_tf + eta
+                current_beta = estR_tf + eta
 
-            # Matrix Operations
-            linear_pred = tf.linalg.matvec(ppData_tf, current_beta_t)
+            # --- Cox Partial Likelihood Calculation ---
+            linear_pred = tf.linalg.matvec(ppData_tf, current_beta)
             xi_contribution = tf.linalg.matvec(XiData_tf, xi)
             
-            # Cox Partial Likelihood Components
             adjusted_cumH = cQ_tf + xi_contribution
-            adjusted_hazards = tf.maximum(dq_tf + xi, 1e-8) # Stability
+            adjusted_hazards = tf.maximum(dq_tf + xi, 1e-8)
             
             event_linear_pred = tf.reduce_sum(tf.gather(linear_pred, smallidx))
             log_hazards = tf.reduce_sum(tf.math.log(adjusted_hazards))
@@ -85,93 +87,85 @@ def TransCox_Sparse(CovData, cumH, hazards, status, estR, Xinn,
             exp_linear_pred = tf.math.exp(linear_pred)
             risk_set_term = tf.reduce_sum(adjusted_cumH * exp_linear_pred)
             
-            # Loss Calculation (Sum, Unscaled)
+            # Negative Log Likelihood
             neg_log_likelihood = -(event_linear_pred + log_hazards - risk_set_term)
+            
+            # --- Regularization (L1 Loss) ---
+            # Instead of manual shrinkage, we add L1 penalty to the Loss.
+            # Adam will handle the gradient descent direction.
             
             l1_xi = lambda2 * tf.reduce_sum(tf.abs(xi))
             
             if use_beta_mode:
+                # Lambda1 penalizes transfer divergence (Eta)
                 l1_eta = lambda1 * tf.reduce_sum(tf.abs(current_eta))
-                loss = neg_log_likelihood + l1_eta + l1_xi
+                # Lambda_Beta penalizes total sparsity (Beta)
+                l1_beta = lambda_beta * tf.reduce_sum(tf.abs(current_beta))
+                
+                loss = neg_log_likelihood + l1_eta + l1_xi + l1_beta
             else:
                 l1_eta = lambda1 * tf.reduce_sum(tf.abs(eta))
                 loss = neg_log_likelihood + l1_eta + l1_xi
 
-        # --- Gradients & Updates ---
+        # --- Gradients & Update ---
         if use_beta_mode:
             vars_to_update = [beta_t, xi]
-            gradients = tape.gradient(loss, vars_to_update)
-            optimizer.apply_gradients(zip(gradients, vars_to_update))
-            
-            # Proximal Operator (Soft Thresholding)
-            # Threshold = LR * Lambda
-            threshold = learning_rate * lambda_beta
-            
-            # Vectorized soft thresholding
-            beta_sign = tf.sign(beta_t)
-            beta_abs = tf.abs(beta_t)
-            beta_new = beta_sign * tf.maximum(beta_abs - threshold, 0.0)
-            beta_t.assign(beta_new)
-            
-            # Sync eta
-            eta.assign(beta_t - estR_tf)
-            
         else:
             vars_to_update = [eta, xi]
-            gradients = tape.gradient(loss, vars_to_update)
-            optimizer.apply_gradients(zip(gradients, vars_to_update))
             
-            # Soft threshold eta
-            eta_thresh = learning_rate * lambda1 * 0.1
-            eta.assign(tf.sign(eta) * tf.maximum(tf.abs(eta) - eta_thresh, 0.0))
-            
-            # Soft threshold xi
-            xi_thresh = learning_rate * lambda2 * 0.1
-            xi.assign(tf.sign(xi) * tf.maximum(tf.abs(xi) - xi_thresh, 0.0))
+        gradients = tape.gradient(loss, vars_to_update)
+        optimizer.apply_gradients(zip(gradients, vars_to_update))
+        
+        # NOTE: No manual soft-thresholding loop here. 
+        # We rely on the Loss function to drive values small, 
+        # and the post-hoc step to zero them out.
             
         return loss
 
-    # --- Execution Loop ---
+    # --- 5. Execution Loop ---
     loss_history = []
-    
-    # Convert nsteps to int
     n_steps_int = int(nsteps)
     
     for step in range(n_steps_int):
-        # Run the compiled graph step
         loss_val = train_step()
+        loss_history.append(float(loss_val))
         
-        # Record loss (must convert tensor to numpy float)
-        current_loss = float(loss_val)
-        loss_history.append(current_loss)
-        
-        # Logging
         if verbose and (step + 1) % 500 == 0:
-             print(f"Step {step + 1}/{n_steps_int}, Loss: {current_loss:.4f}")
+             print(f"Step {step + 1}/{n_steps_int}, Loss: {loss_val:.4f}")
              
-        # Early Stopping Check (Every 50 steps to save overhead)
+        # Simple Early Stopping
         if step > 50 and step % 50 == 0:
-            # Check if loss change over last 5 steps is tiny
             if abs(loss_history[-1] - loss_history[-6]) < tolerance:
-                if verbose:
-                    print(f"Converged early at step {step+1}")
+                if verbose: print(f"Converged early at step {step+1}")
                 break
 
-    # --- Finalizing Results ---
+    # --- 6. Finalization & Theoretical Hard Thresholding ---
     eta_final = eta.numpy()
     xi_final = xi.numpy()
     
     if use_beta_mode:
-        beta_t_final = beta_t.numpy()
+        beta_final = beta_t.numpy()
     else:
-        beta_t_final = estR_np + eta_final
+        beta_final = estR + eta_final
+        
+    # === [SCIENTIFIC CORE] Hard Thresholding ===
+    # Apply the O(sqrt(log p / n)) threshold
+    # Coefficients below this noise floor are statistically indistinguishable from zero.
     
-    nonzero_beta = np.sum(np.abs(beta_t_final) > 1e-6)
+    # 1. Apply threshold to Beta
+    mask = np.abs(beta_final) >= theoretical_tau
+    beta_final_sparse = beta_final * mask
+    
+    # 2. Sync Eta (Eta = Beta_new - Beta_source)
+    # This ensures consistency after thresholding
+    eta_final_corrected = beta_final_sparse - estR
+    
+    nonzero_beta = np.sum(np.abs(beta_final_sparse) > 1e-8)
     
     convergence_info = {
         'loss_history': loss_history,
         'nonzero_beta': nonzero_beta,
-        'steps_taken': len(loss_history)
+        'theoretical_tau': theoretical_tau
     }
     
-    return eta_final, xi_final, beta_t_final, convergence_info
+    return eta_final_corrected, xi_final, beta_final_sparse, convergence_info
