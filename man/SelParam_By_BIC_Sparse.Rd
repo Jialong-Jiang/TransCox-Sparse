@@ -17,7 +17,8 @@ SelParam_By_BIC_Sparse(
   use_sparse = TRUE,
   parallel = FALSE,
   verbose = TRUE,
-  n_cores = NULL
+  n_cores = NULL,
+  threshold_c = 0.5
 )
 }
 \arguments{
@@ -54,6 +55,9 @@ Default is FALSE.}
 Default is TRUE.}
 
 \item{n_cores}{Integer. Number of cores for parallel computation. If NULL, detected automatically.}
+
+\item{threshold_c}{Numeric. Constant for theoretical hard thresholding (tau = C * sqrt(log(p)/n)).
+Default is 0.5.}
 }
 \value{
 A list containing the following components:

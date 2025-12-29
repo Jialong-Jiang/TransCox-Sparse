@@ -21,7 +21,8 @@ runTransCox_Sparse(
   early_stopping = TRUE,
   adaptive_lr = TRUE,
   parallel = FALSE,
-  n_cores = NULL
+  n_cores = NULL,
+  threshold_c = 0.5
 )
 }
 \arguments{
@@ -68,6 +69,9 @@ Default is 1e-6.}
 \item{parallel}{Logical. Whether to use parallel computation for parameter search. Default is FALSE.}
 
 \item{n_cores}{Integer. Number of cores for parallel computation. If NULL, detected automatically.}
+
+\item{threshold_c}{Numeric. Constant for theoretical hard thresholding (tau = C * sqrt(log(p)/n)).
+Default is 0.5. Controls the post-hoc sparsity level.}
 }
 \value{
 A list containing the following components:

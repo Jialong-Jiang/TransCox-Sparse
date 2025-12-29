@@ -6,28 +6,20 @@
 #' @return A numeric vector for fine search.
 #' @noRd
 generate_fine_search_vector <- function(best_value, coarse_vec) {
-  # Find position of best value in coarse vector
   idx <- which.min(abs(coarse_vec - best_value))
 
-  # Determine search range
   if (idx == 1) {
-    # Best value at lower end
     lower <- best_value
     upper <- if (length(coarse_vec) > 1) coarse_vec[2] else best_value * 2
   } else if (idx == length(coarse_vec)) {
-    # Best value at upper end
     lower <- coarse_vec[idx - 1]
     upper <- best_value
   } else {
-    # Best value in middle
     lower <- coarse_vec[idx - 1]
     upper <- coarse_vec[idx + 1]
   }
 
-  # Generate 3-5 fine search points within range
   fine_vec <- seq(lower, upper, length.out = 6)
-
-  # Remove duplicates and sort
   fine_vec <- sort(unique(fine_vec))
   return(fine_vec)
 }
@@ -67,16 +59,18 @@ generate_fine_search_vector <- function(best_value, coarse_vec) {
 #' @param verbose Logical. Whether to display detailed progress information.
 #'    Default is TRUE.
 #' @param n_cores Integer. Number of cores for parallel computation. If NULL, detected automatically.
+#' @param threshold_c Numeric. Constant for theoretical hard thresholding (tau = C * sqrt(log(p)/n)).
+#'    Default is 0.5.
 #'
 #' @return A list containing the following components:
 #' \describe{
-#'   \item{optimal_lambda1}{The optimal lambda1 value that minimizes BIC}
-#'   \item{optimal_lambda2}{The optimal lambda2 value that minimizes BIC}
-#'   \item{optimal_lambda_beta}{The optimal lambda_beta value that minimizes BIC}
-#'   \item{min_bic}{The minimum BIC value achieved}
-#'   \item{bic_matrix}{3D array of BIC values for all parameter combinations}
-#'   \item{parameter_grid}{Data frame of all tested parameter combinations}
-#'   \item{convergence_info}{Information about optimization convergence}
+#'    \item{optimal_lambda1}{The optimal lambda1 value that minimizes BIC}
+#'    \item{optimal_lambda2}{The optimal lambda2 value that minimizes BIC}
+#'    \item{optimal_lambda_beta}{The optimal lambda_beta value that minimizes BIC}
+#'    \item{min_bic}{The minimum BIC value achieved}
+#'    \item{bic_matrix}{3D array of BIC values for all parameter combinations}
+#'    \item{parameter_grid}{Data frame of all tested parameter combinations}
+#'    \item{convergence_info}{Information about optimization convergence}
 #' }
 #'
 #' @importFrom parallel makeCluster stopCluster detectCores clusterEvalQ clusterExport parLapply
@@ -93,28 +87,23 @@ SelParam_By_BIC_Sparse <- function(primData, auxData, cov = c("X1", "X2"),
                                    use_sparse = TRUE,
                                    parallel = FALSE,
                                    verbose = TRUE,
-                                   n_cores = NULL) {
+                                   n_cores = NULL,
+                                   threshold_c = 0.5) { # [NEW] Added parameter
 
-  # Start BIC parameter selection
   if (verbose) cat("Starting BIC parameter selection...\n")
 
-  # Create result cache environment
   result_cache <- new.env()
-
-  # Declare cl variable to avoid R CMD check note about 'no visible binding'
   cl <- NULL
 
   # Parallel computation initialization
   if (parallel) {
-    # Detect available cores
     if (is.null(n_cores)) {
-      n_cores <- max(1, parallel::detectCores() - 1)  # Reserve one core
+      n_cores <- max(1, parallel::detectCores() - 1)
     }
     n_cores <- min(n_cores, parallel::detectCores())
 
     if (verbose) cat(sprintf("Parallel computing enabled, using %d cores\n", n_cores))
 
-    # Check and load necessary packages
     if (!requireNamespace("parallel", quietly = TRUE)) {
       if (verbose) cat("Package 'parallel' not available, switching to serial mode\n")
       parallel <- FALSE
@@ -122,11 +111,8 @@ SelParam_By_BIC_Sparse <- function(primData, auxData, cov = c("X1", "X2"),
       if (verbose) cat("Package 'doParallel' not available, switching to serial mode\n")
       parallel <- FALSE
     } else {
-      # Set up parallel backend
       cl <- parallel::makeCluster(n_cores)
       doParallel::registerDoParallel(cl)
-
-      # Ensure cluster cleanup on exit
       on.exit({
         if (!is.null(cl)) {
           parallel::stopCluster(cl)
@@ -161,7 +147,6 @@ SelParam_By_BIC_Sparse <- function(primData, auxData, cov = c("X1", "X2"),
   # Calculate target domain parameters
   Pout <- GetPrimaryParam(primData, q = Cout$q, estR = Cout$estR)
 
-  # Pre-calculate common data to reduce repeated computation
   if (verbose) cat("Pre-calculating data to optimize performance...\n")
 
   CovData_precomputed <- as.matrix(Pout$primData[, cov, drop = FALSE])
@@ -183,10 +168,8 @@ SelParam_By_BIC_Sparse <- function(primData, auxData, cov = c("X1", "X2"),
     Xinn = Xinn_precomputed
   )
 
-  # Hierarchical search strategy
   if (verbose) cat("Starting hierarchical parameter search...\n")
 
-  # Phase 1: Coarse search
   coarse_grid <- expand.grid(
     lambda1 = lambda1_vec,
     lambda2 = lambda2_vec,
@@ -199,8 +182,6 @@ SelParam_By_BIC_Sparse <- function(primData, auxData, cov = c("X1", "X2"),
   }
 
   param_grid <- coarse_grid
-
-  # Smart cache mechanism
   bic_cache <- list()
 
   find_cached_result <- function(lambda1, lambda2, lambda_beta) {
@@ -215,7 +196,8 @@ SelParam_By_BIC_Sparse <- function(primData, auxData, cov = c("X1", "X2"),
   }
 
   # Define evaluation function
-  evaluate_params <- function(idx, param_row, data_pkg, use_sparse_flag, lr, n_steps, verb = FALSE) {
+  # [CRITICAL UPDATE] Added thresh_c argument
+  evaluate_params <- function(idx, param_row, data_pkg, use_sparse_flag, lr, n_steps, thresh_c, verb = FALSE) {
     lambda1 <- param_row$lambda1
     lambda2 <- param_row$lambda2
     lambda_beta <- param_row$lambda_beta
@@ -228,7 +210,6 @@ SelParam_By_BIC_Sparse <- function(primData, auxData, cov = c("X1", "X2"),
       ))
     }
 
-    # Early stopping for invalid parameters
     if (lambda1 <= 0 || lambda2 <= 0 || (use_sparse_flag && lambda_beta < 0)) {
       return(list(
         lambda1 = lambda1, lambda2 = lambda2, lambda_beta = lambda_beta,
@@ -239,6 +220,7 @@ SelParam_By_BIC_Sparse <- function(primData, auxData, cov = c("X1", "X2"),
     tryCatch({
       if (use_sparse_flag && !is.null(lambda_beta) && lambda_beta > 0) {
         # Use sparse version
+        # [CRITICAL UPDATE] Passing threshold_c to Python
         result <- TransCox_Sparse(
           CovData = data_pkg$CovData,
           cumH = data_pkg$cumH,
@@ -251,7 +233,8 @@ SelParam_By_BIC_Sparse <- function(primData, auxData, cov = c("X1", "X2"),
           lambda_beta = lambda_beta,
           learning_rate = lr,
           nsteps = n_steps,
-          verbose = FALSE
+          verbose = FALSE,
+          threshold_c = as.double(thresh_c) # Pass C value
         )
         eta <- result[[1]]
         xi <- result[[2]]
@@ -277,7 +260,6 @@ SelParam_By_BIC_Sparse <- function(primData, auxData, cov = c("X1", "X2"),
 
       newHaz <- data_pkg$hazards + xi
 
-      # Check result validity
       if (any(is.na(eta)) || any(is.na(xi)) || any(is.na(newBeta)) ||
           any(is.infinite(eta)) || any(is.infinite(xi)) || any(is.infinite(newBeta))) {
         return(list(
@@ -309,7 +291,6 @@ SelParam_By_BIC_Sparse <- function(primData, auxData, cov = c("X1", "X2"),
         ))
       }
 
-      # Store in cache
       bic_cache <<- append(bic_cache, list(list(
         lambda1 = lambda1, lambda2 = lambda2, lambda_beta = lambda_beta,
         bic = bic_value
@@ -348,12 +329,9 @@ SelParam_By_BIC_Sparse <- function(primData, auxData, cov = c("X1", "X2"),
     if (verbose) cat("Starting parallel parameter search...\n")
 
     tryCatch({
-      # Prepare environment variables for workers
-      # Capture them in local variables to avoid exporting .GlobalEnv
       py_path <- Sys.getenv("RETICULATE_PYTHON")
       conda_env <- Sys.getenv("RETICULATE_CONDA_ENV")
 
-      # Export the variables to the cluster
       parallel::clusterExport(cl, varlist = c("py_path", "conda_env"), envir = environment())
 
       parallel::clusterEvalQ(cl, {
@@ -368,20 +346,20 @@ SelParam_By_BIC_Sparse <- function(primData, auxData, cov = c("X1", "X2"),
           reticulate::use_condaenv(Sys.getenv("RETICULATE_CONDA_ENV"))
         }
 
-        # Load python scripts in worker
         py_file_sparse <- system.file("python", "TransCoxFunction_Sparse.py", package = "TransCoxSparse")
-        if (py_file_sparse == "") py_file_sparse <- "inst/python/TransCoxFunction_Sparse.py" # Fallback
+        if (py_file_sparse == "") py_file_sparse <- "inst/python/TransCoxFunction_Sparse.py"
         if (file.exists(py_file_sparse)) reticulate::source_python(py_file_sparse)
 
         py_file <- system.file("python", "TransCoxFunction.py", package = "TransCoxSparse")
-        if (py_file == "") py_file <- "inst/python/TransCoxFunction.py" # Fallback
+        if (py_file == "") py_file <- "inst/python/TransCoxFunction.py"
         if (file.exists(py_file)) reticulate::source_python(py_file)
       })
 
       parallel::clusterExport(cl, c("GetBIC", "evaluate_params"), envir = environment())
 
+      # [CRITICAL UPDATE] Pass threshold_c to parLapply
       results <- parallel::parLapply(cl, 1:nrow(param_grid), function(i) {
-        evaluate_params(i, param_grid[i, ], data_package, use_sparse, learning_rate, nsteps, FALSE)
+        evaluate_params(i, param_grid[i, ], data_package, use_sparse, learning_rate, nsteps, threshold_c, FALSE)
       })
 
       parallel_success <- TRUE
@@ -395,7 +373,8 @@ SelParam_By_BIC_Sparse <- function(primData, auxData, cov = c("X1", "X2"),
   if (!parallel_success || is.null(results)) {
     if (verbose) cat("Starting serial parameter search...\n")
     results <- lapply(1:nrow(param_grid), function(i) {
-      result <- evaluate_params(i, param_grid[i, ], data_package, use_sparse, learning_rate, nsteps, FALSE)
+      # [CRITICAL UPDATE] Pass threshold_c to serial lapply
+      result <- evaluate_params(i, param_grid[i, ], data_package, use_sparse, learning_rate, nsteps, threshold_c, FALSE)
       if (verbose && i %% 5 == 0) {
         progress <- i / nrow(param_grid) * 100
         cat(sprintf("Progress: %.1f%% (%d/%d)\n", progress, i, nrow(param_grid)))
@@ -404,7 +383,6 @@ SelParam_By_BIC_Sparse <- function(primData, auxData, cov = c("X1", "X2"),
     })
   }
 
-  # Process results
   BIC_array <- array(Inf, dim = c(length(lambda1_vec), length(lambda2_vec), length(lambda_beta_vec)),
                      dimnames = list(lambda1_vec, lambda2_vec, lambda_beta_vec))
 
@@ -432,7 +410,6 @@ SelParam_By_BIC_Sparse <- function(primData, auxData, cov = c("X1", "X2"),
                 best_lambda1, best_lambda2, best_lambda_beta, current_best_bic))
   }
 
-  # Phase 2: Fine search
   if (verbose) cat("Phase 2: Fine search around optimal area...\n")
 
   fine_lambda1_vec <- generate_fine_search_vector(best_lambda1, lambda1_vec)
@@ -453,10 +430,10 @@ SelParam_By_BIC_Sparse <- function(primData, auxData, cov = c("X1", "X2"),
     if (verbose) cat(sprintf("Fine search adding %d parameter combinations...\n", nrow(fine_grid)))
 
     fine_results <- lapply(1:nrow(fine_grid), function(i) {
-      evaluate_params(i, fine_grid[i, ], data_package, use_sparse, learning_rate, nsteps, FALSE)
+      # [CRITICAL UPDATE] Pass threshold_c to fine search
+      evaluate_params(i, fine_grid[i, ], data_package, use_sparse, learning_rate, nsteps, threshold_c, FALSE)
     })
 
-    # Update optimal if better
     fine_BIC_values <- sapply(fine_results, function(x) x$bic)
     min_fine_bic <- min(fine_BIC_values, na.rm = TRUE)
 
@@ -474,6 +451,7 @@ SelParam_By_BIC_Sparse <- function(primData, auxData, cov = c("X1", "X2"),
 
   # Final run
   if (use_sparse && best_lambda_beta > 0) {
+    # [CRITICAL UPDATE] Pass threshold_c to final model
     final_result <- TransCox_Sparse(
       CovData = as.matrix(Pout$primData[, cov]),
       cumH = cumH_precomputed,
@@ -486,7 +464,8 @@ SelParam_By_BIC_Sparse <- function(primData, auxData, cov = c("X1", "X2"),
       lambda_beta = best_lambda_beta,
       learning_rate = learning_rate,
       nsteps = nsteps,
-      verbose = verbose
+      verbose = verbose,
+      threshold_c = as.double(threshold_c) # Pass C value
     )
     final_eta <- final_result[[1]]
     final_xi <- final_result[[2]]

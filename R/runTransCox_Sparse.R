@@ -39,17 +39,19 @@
 #' @param adaptive_lr Logical. Whether to use adaptive learning rate. Default is TRUE.
 #' @param parallel Logical. Whether to use parallel computation for parameter search. Default is FALSE.
 #' @param n_cores Integer. Number of cores for parallel computation. If NULL, detected automatically.
+#' @param threshold_c Numeric. Constant for theoretical hard thresholding (tau = C * sqrt(log(p)/n)).
+#'    Default is 0.5. Controls the post-hoc sparsity level.
 #'
 #' @return A list containing the following components:
 #' \describe{
-#'   \item{beta_t}{Estimated coefficients for the target domain}
-#'   \item{eta}{Estimated auxiliary parameters}
-#'   \item{xi}{Estimated transfer parameters}
-#'   \item{lambda1}{Used L1 penalty for eta}
-#'   \item{lambda2}{Used L1 penalty for xi}
-#'   \item{lambda_beta}{Used L1 penalty for beta_t}
-#'   \item{convergence}{Convergence information}
-#'   \item{sparse_info}{Information about sparsity patterns}
+#'    \item{beta_t}{Estimated coefficients for the target domain}
+#'    \item{eta}{Estimated auxiliary parameters}
+#'    \item{xi}{Estimated transfer parameters}
+#'    \item{lambda1}{Used L1 penalty for eta}
+#'    \item{lambda2}{Used L1 penalty for xi}
+#'    \item{lambda_beta}{Used L1 penalty for beta_t}
+#'    \item{convergence}{Convergence information}
+#'    \item{sparse_info}{Information about sparsity patterns}
 #' }
 #'
 #' @examples
@@ -86,7 +88,8 @@ runTransCox_Sparse <- function(primData, auxData,
                                early_stopping = TRUE,
                                adaptive_lr = TRUE,
                                parallel = FALSE,
-                               n_cores = NULL) {
+                               n_cores = NULL,
+                               threshold_c = 0.5) {
 
   # Automatically detect whether to use sparse version
   if (is.null(use_sparse)) {
@@ -96,7 +99,6 @@ runTransCox_Sparse <- function(primData, auxData,
   }
 
   # Load Python Functions
-  # Use system.file to locate python scripts within the installed package
   if (use_sparse) {
     if (!exists("TransCox_Sparse", mode = "function")) {
       py_path <- system.file("python", "TransCoxFunction_Sparse.py", package = "TransCoxSparse")
@@ -124,7 +126,6 @@ runTransCox_Sparse <- function(primData, auxData,
   }
 
   # Parameter Tuning
-  # If auto_tune=TRUE and any parameter is vector or NULL, perform BIC selection
   need_tune <- auto_tune && (
     is.null(lambda1) || is.null(lambda2) || is.null(lambda_beta) ||
       length(lambda1) > 1 || length(lambda2) > 1 || length(lambda_beta) > 1
@@ -134,7 +135,6 @@ runTransCox_Sparse <- function(primData, auxData,
     # Automatic Parameter Tuning
     if (use_sparse) {
       # Use sparse version BIC selection
-      # Default search ranges if NULL
       l1_range <- if(is.null(lambda1)) c(0.1, 0.5, 1.0, 2.0) else lambda1
       l2_range <- if(is.null(lambda2)) c(0.1, 0.5, 1.0, 2.0) else lambda2
       lb_range <- if(is.null(lambda_beta)) c(0.001, 0.003, 0.005, 0.01, 0.02, 0.05, 0.1, 0.2) else lambda_beta
@@ -288,7 +288,8 @@ runTransCox_Sparse <- function(primData, auxData,
       learning_rate = as.double(learning_rate),
       nsteps = as.integer(nsteps),
       tolerance = as.double(tolerance),
-      verbose = verbose
+      verbose = verbose,
+      threshold_c = as.double(threshold_c) # Pass new parameter to Python
     )
 
     # Use sparse version
