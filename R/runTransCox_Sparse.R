@@ -91,13 +91,6 @@ runTransCox_Sparse <- function(primData, auxData,
                                n_cores = NULL,
                                threshold_c = 0.5) {
 
-  # Automatically detect whether to use sparse version
-  if (is.null(use_sparse)) {
-    n_samples <- nrow(primData)
-    n_features <- length(cov)
-    use_sparse <- (n_features > n_samples / 2)
-  }
-
   # Load Python Functions
   if (use_sparse) {
     if (!exists("TransCox_Sparse", mode = "function")) {
