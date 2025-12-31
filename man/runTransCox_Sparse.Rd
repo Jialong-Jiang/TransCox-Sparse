@@ -15,7 +15,7 @@ runTransCox_Sparse(
   learning_rate = 0.001,
   nsteps = 500,
   auto_tune = TRUE,
-  use_sparse = NULL,
+  use_sparse = TRUE,
   verbose = TRUE,
   tolerance = 1e-06,
   early_stopping = TRUE,
@@ -54,8 +54,8 @@ will be automatically selected via BIC. Default is NULL.}
 \item{auto_tune}{Logical. Whether to automatically tune hyperparameters using BIC.
 Default is TRUE.}
 
-\item{use_sparse}{Logical. Whether to force the use of sparse implementation. If NULL,
-automatically determined based on data dimensions. Default is NULL.}
+\item{use_sparse}{Logical. Deprecated parameter, kept for compatibility. This function
+ALWAYS runs in sparse mode. Default is TRUE.}
 
 \item{verbose}{Logical. Whether to display detailed progress information. Default is TRUE.}
 
@@ -74,45 +74,11 @@ Default is 1e-6.}
 Default is 0.5. Controls the post-hoc sparsity level.}
 }
 \value{
-A list containing the following components:
-\describe{
-\item{beta_t}{Estimated coefficients for the target domain}
-\item{eta}{Estimated auxiliary parameters}
-\item{xi}{Estimated transfer parameters}
-\item{lambda1}{Used L1 penalty for eta}
-\item{lambda2}{Used L1 penalty for xi}
-\item{lambda_beta}{Used L1 penalty for beta_t}
-\item{convergence}{Convergence information}
-\item{sparse_info}{Information about sparsity patterns}
-}
+A list containing the estimated coefficients and convergence information.
 }
 \description{
 This function implements the sparse TransCox model for high-dimensional survival analysis
 with transfer learning. It integrates source domain (auxiliary) data to improve prediction
 performance on the target domain (primary) data through regularized Cox regression with
 L1 penalties.
-}
-\details{
-The sparse TransCox model addresses the challenge of limited sample sizes in survival
-analysis by leveraging information from related source domains. The model uses L1
-regularization to achieve sparsity and automatic feature selection, making it suitable
-for high-dimensional data where the number of features exceeds the number of samples.
-}
-\examples{
-\dontrun{
-# Generate example data
-data <- generate_sparse_survival_data(n_main = 100, n_aux = 200, p = 50)
-
-# Fit sparse TransCox model
-result <- runTransCox_Sparse(
-   primData = data$prim_data,
-   auxData = data$aux_data,
-   cov = paste0("X", 1:50),
-   statusvar = "status"
-)
-
-# View results
-print(result)
-}
-
 }

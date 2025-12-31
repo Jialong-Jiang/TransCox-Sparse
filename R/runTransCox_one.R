@@ -13,7 +13,7 @@
 #' @return A list containing eta and xi.
 #' @export
 runTransCox_one <- function(Pout, l1 = 1, l2 = 1, learning_rate = 0.004, nsteps = 200,
-                            cov = c('X1', 'X2'), lambda_beta = 0, use_sparse = NULL){
+                            cov = c('X1', 'X2')){
 
     # Load Python function if not already loaded
     if (!exists("TransCox")) {
