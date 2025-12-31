@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-TransCox High-Dimensional Sparse Version - SCIENTIFIC FIX v2 (Safe Mode)
-Method: L1 Regularized Loss + Hard Thresholding + Numerical Stability Clips
+TransCox High-Dimensional Sparse - JASA ADDITIVE VERSION
+Method: Proximal Gradient Descent (PGD) with Additive Hazard Transfer
+Status: Scientific & Numerically Safe
 """
 
 import tensorflow as tf
@@ -10,148 +11,139 @@ import numpy as np
 
 def TransCox_Sparse(CovData, cumH, hazards, status, estR, Xinn, 
                     lambda1, lambda2, lambda_beta, 
-                    learning_rate=0.004, nsteps=200,
-                    tolerance=1e-6, verbose=True,
-                    threshold_c=0.5): 
+                    learning_rate=0.01, nsteps=2000,
+                    tolerance=1e-7, verbose=True):
     
-    # --- 1. Data Dimensions & Theory ---
-    n_samples = CovData.shape[0]
-    n_features = CovData.shape[1]
-    
-    # Theoretical Threshold calculation
-    theoretical_tau = threshold_c * np.sqrt(np.log(n_features) / n_samples)
-    
-    if verbose:
-        print(f"TransCox Sparse (Safe Mode): L1 Loss + Hard Thresholding")
-        print(f"Theoretical Tau: {theoretical_tau:.5f} (C={threshold_c})")
-    
-    # --- 2. TF Conversions ---
+    # --- 1. Data Setup ---
     dtype = tf.float64
-    XiData_tf = tf.constant(np.ascontiguousarray(Xinn), dtype=dtype)
-    ppData_tf = tf.constant(np.ascontiguousarray(CovData), dtype=dtype)
-    cQ_tf = tf.constant(np.ascontiguousarray(cumH).reshape(-1), dtype=dtype)
-    dq_tf = tf.constant(np.ascontiguousarray(hazards).reshape(-1), dtype=dtype)
-    estR_tf = tf.constant(np.ascontiguousarray(estR).reshape(-1), dtype=dtype)
+    
+    X_tf = tf.constant(np.ascontiguousarray(CovData), dtype=dtype)
+    Xi_tf = tf.constant(np.ascontiguousarray(Xinn), dtype=dtype)
+    
+    # Baseline Hazard Quantities (Source)
+    cQ_tf = tf.constant(np.ascontiguousarray(cumH).reshape(-1), dtype=dtype)   # H0_source
+    dq_tf = tf.constant(np.ascontiguousarray(hazards).reshape(-1), dtype=dtype) # h0_source
+    estR_tf = tf.constant(np.ascontiguousarray(estR).reshape(-1), dtype=dtype) # beta_source
     
     status_np = np.ascontiguousarray(status).reshape(-1)
     event_code = 2 if np.max(status_np) > 1 else 1
-    smallidx = tf.constant(np.where(status_np == event_code)[0], dtype=tf.int64)
+    event_indices = tf.constant(np.where(status_np == event_code)[0], dtype=tf.int64)
+    n_events = tf.cast(tf.shape(event_indices)[0], dtype=dtype)
     
+    n_features = X_tf.shape[1]
     n_hazards = dq_tf.shape[0]
-    eta = tf.Variable(tf.zeros(n_features, dtype=dtype), name="eta")
+
+    # Initialize Variables
+    # We optimize Beta_Target directly.
+    beta_t = tf.Variable(estR_tf, name="beta_t") 
     xi = tf.Variable(tf.zeros(n_hazards, dtype=dtype), name="xi")
-    
-    use_beta_mode = (lambda_beta > 0)
 
+    # --- 2. The Proximal Operators ---
     
-    if use_beta_mode:
-        beta_t = tf.Variable(estR_tf, name="beta_t")
-    else:
-        beta_t = tf.Variable(tf.zeros(1, dtype=dtype), name="dummy")
+    @tf.function(jit_compile=True)
+    def soft_threshold(x, lam):
+        return tf.math.sign(x) * tf.maximum(tf.math.abs(x) - lam, 0.0)
 
-    optimizer = tf.optimizers.Adam(learning_rate=learning_rate)
-    
-    # --- 3. Optimization Graph (Safe Version) ---
-    @tf.function(jit_compile=True) 
-    def train_step():
+    @tf.function(jit_compile=True)
+    def proximal_double_l1(u, center, lam_transfer, lam_sparsity):
+        """
+        Sequential Shrinkage for Beta:
+        1. Shrink towards Source (Transfer)
+        2. Shrink towards 0 (Sparsity)
+        """
+        # Step 1: Transfer (eta penalty)
+        diff = u - center
+        z = soft_threshold(diff, lam_transfer) + center
+        
+        # Step 2: Sparsity (beta penalty)
+        final = soft_threshold(z, lam_sparsity)
+        return final
+
+    # --- 3. Gradient Calculation (Additive Model) ---
+    @tf.function(jit_compile=True)
+    def compute_gradients_and_loss():
         with tf.GradientTape() as tape:
-            if use_beta_mode:
-                current_beta = beta_t
-                current_eta = beta_t - estR_tf 
-            else:
-                current_eta = eta
-                current_beta = estR_tf + eta
 
-            # Cox Partial Likelihood
-            linear_pred = tf.linalg.matvec(ppData_tf, current_beta)
-            xi_contribution = tf.linalg.matvec(XiData_tf, xi)
+            xi_contribution = tf.linalg.matvec(Xi_tf, xi) 
             
-            # [SAFETY 1] Clip Linear Predictor to prevent exp() explosion
-            # range [-15, 15] is sufficient for survival risk scores
+
+
+            h0_source_mapped = tf.linalg.matvec(Xi_tf, dq_tf) # Map unique h0 to individuals
+            
+            h_new_mapped = h0_source_mapped + xi_contribution
+            
+            # [SAFETY] Clip Hazard > 1e-10
+            h_new_safe = tf.maximum(h_new_mapped, 1e-10)
+            
+            # Linear Predictor
+            linear_pred = tf.linalg.matvec(X_tf, beta_t)
             linear_pred = tf.clip_by_value(linear_pred, -15.0, 15.0)
             
-            adjusted_cumH = tf.maximum(cQ_tf + xi_contribution, 1e-8)
+            # Term 1: Event Log-Likelihood
+            # Sum_{events} [ X*beta + log(h0 + xi) ]
+            lp_events = tf.gather(linear_pred, event_indices)
+            log_h_events = tf.math.log(tf.gather(h_new_safe, event_indices))
             
-            # [SAFETY 2] Ensure hazards are strictly positive for log()
-            adjusted_hazards = tf.maximum(dq_tf + xi, 1e-8)
+            term1 = tf.reduce_sum(lp_events + log_h_events)
             
-            event_linear_pred = tf.reduce_sum(tf.gather(linear_pred, smallidx))
-            log_hazards = tf.reduce_sum(tf.math.log(adjusted_hazards))
+           
+            risk_score = tf.math.exp(linear_pred)
             
-            exp_linear_pred = tf.math.exp(linear_pred)
-            risk_set_term = tf.reduce_sum(adjusted_cumH * exp_linear_pred)
-            
-            neg_log_likelihood = -(event_linear_pred + log_hazards - risk_set_term)
-            
-            # Regularization
-            reg_xi = lambda2 * tf.reduce_sum(tf.abs(xi))
-            
-            if use_beta_mode:
-                reg_eta = lambda1 * tf.reduce_sum(tf.abs(current_eta))
-                reg_beta = lambda_beta * tf.reduce_sum(tf.abs(current_beta))
-                loss = neg_log_likelihood + reg_eta + reg_xi + reg_beta
-            else:
-                reg_eta = lambda1 * tf.reduce_sum(tf.abs(eta))
-                loss = neg_log_likelihood + reg_eta + reg_xi
 
-        # Update
-        if use_beta_mode:
-            vars_to_update = [beta_t, xi]
-        else:
-            vars_to_update = [eta, xi]
+            cum_xi = tf.linalg.matvec(Xi_tf, xi)
+            H_new_safe = tf.maximum(cQ_tf + cum_xi, 1e-10)
             
-        gradients = tape.gradient(loss, vars_to_update)
-        
-        # [SAFETY 3] Clip Gradients to prevent NaN propagation
-        # If a single sample causes a spike, this saves the model.
-        gradients = [tf.clip_by_norm(g, 1.0) for g in gradients]
-        
-        optimizer.apply_gradients(zip(gradients, vars_to_update))
-        return loss
+            term2 = tf.reduce_sum(H_new_safe * risk_score)
+            
+            # NLL
+            nll = -(term1 - term2)
+            scaled_nll = nll / n_events
 
-    # --- 4. Execution ---
+        grads = tape.gradient(scaled_nll, [beta_t, xi])
+        return grads, scaled_nll
+
+    # --- 4. Training Loop (PGD) ---
+    lr = tf.constant(learning_rate, dtype=dtype)
     loss_history = []
-    n_steps_int = int(nsteps)
     
-    for step in range(n_steps_int):
-        loss_val = train_step()
-        loss_val_float = float(loss_val)
+    for step in range(nsteps):
         
-        # Check for NaN immediately
-        if np.isnan(loss_val_float):
-            if verbose: print(f"Warning: Loss is NaN at step {step}. Stopping.")
+        # 4.1 Gradient
+        (d_beta, d_xi), current_loss = compute_gradients_and_loss()
+        
+        if tf.math.is_nan(current_loss):
+            if verbose: print(f"Warning: NaN Loss at step {step}")
             break
             
-        loss_history.append(loss_val_float)
+        # 4.2 Beta Update (Double Shrinkage)
+        u_beta = beta_t - lr * d_beta
+        new_beta = proximal_double_l1(
+            u_beta, 
+            center=estR_tf, 
+            lam_transfer=lambda1 * lr, 
+            lam_sparsity=lambda_beta * lr
+        )
+        beta_t.assign(new_beta)
         
-        if verbose and (step + 1) % 500 == 0:
-             print(f"Step {step + 1}/{n_steps_int}, Loss: {loss_val_float:.4f}")
+        # 4.3 Xi Update (Soft Threshold for L1 on Xi)
+        u_xi = xi - lr * d_xi
+        new_xi = soft_threshold(u_xi, lambda2 * lr)
+        
+        xi.assign(new_xi)
+        
+        loss_history.append(float(current_loss))
 
-    # --- 5. Post-Hoc Hard Thresholding ---
-    eta_final = eta.numpy()
+    # --- 5. Output ---
+    beta_final = beta_t.numpy()
     xi_final = xi.numpy()
+    eta_final = beta_final - estR
     
-    if use_beta_mode:
-        beta_raw = beta_t.numpy()
-    else:
-        beta_raw = estR + eta_final
-        
-    # Handle NaN in output (Fallback to EstR if training failed)
-    if np.any(np.isnan(beta_raw)):
-        if verbose: print("Error: Training produced NaNs. Falling back to source estimates.")
-        beta_raw = np.nan_to_num(estR_tf.numpy()) # Fallback
-    
-    # Apply Theoretical Threshold
-    mask = np.abs(beta_raw) >= theoretical_tau
-    beta_final = beta_raw * mask
-    
-    eta_final_corrected = beta_final - estR
     nonzero_beta = np.sum(np.abs(beta_final) > 1e-8)
     
     convergence_info = {
         'loss_history': loss_history,
-        'theoretical_tau': theoretical_tau,
-        'nonzero_beta': nonzero_beta
+        'nonzero_beta': nonzero_beta,
+        'final_loss': loss_history[-1] if loss_history else 0
     }
     
-    return eta_final_corrected, xi_final, beta_final, convergence_info
+    return eta_final, xi_final, beta_final, convergence_info

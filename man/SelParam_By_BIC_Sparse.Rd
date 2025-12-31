@@ -2,84 +2,55 @@
 % Please edit documentation in R/SelParam_By_BIC_Sparse.R
 \name{SelParam_By_BIC_Sparse}
 \alias{SelParam_By_BIC_Sparse}
-\title{BIC-Based Parameter Selection for Sparse TransCox}
+\title{BIC-Based Parameter Selection for Sparse TransCox (PGD Version)}
 \usage{
 SelParam_By_BIC_Sparse(
   primData,
   auxData,
   cov = c("X1", "X2"),
   statusvar = "status",
-  lambda1_vec = c(0, 0.001, 0.01, 0.1, 0.5, 1, 5),
-  lambda2_vec = c(0.001, 0.01, 0.1, 0.5, 1, 2),
-  lambda_beta_vec = c(0, 1e-04, 5e-04, 0.001, 0.01, 0.1, 0.5, 1),
-  learning_rate = 0.001,
-  nsteps = 500,
+  lambda1_vec = c(0.01, 0.05, 0.1, 0.2, 0.5),
+  lambda2_vec = c(0.001, 0.01, 0.05, 0.1),
+  lambda_beta_vec = c(0.005, 0.01, 0.02, 0.05, 0.1, 0.2),
+  learning_rate = 0.01,
+  nsteps = 2000,
   use_sparse = TRUE,
   parallel = FALSE,
   verbose = TRUE,
-  n_cores = NULL,
-  threshold_c = 0.5
+  n_cores = NULL
 )
 }
 \arguments{
-\item{primData}{A data.frame containing the target domain survival data.}
+\item{primData}{Target domain data.}
 
-\item{auxData}{A data.frame containing the source domain survival data.}
+\item{auxData}{Source domain data.}
 
-\item{cov}{A character vector specifying the names of covariates to be used.
-Default is c("X1", "X2").}
+\item{cov}{Covariate names.}
 
-\item{statusvar}{A character string specifying the name of the event status
-variable. Default is "status".}
+\item{statusvar}{Status variable name.}
 
-\item{lambda1_vec}{Numeric vector of candidate values for lambda1 (L1 penalty
-for eta parameter). Default provides a reasonable range.}
+\item{lambda1_vec}{Candidate values for Transfer Penalty.}
 
-\item{lambda2_vec}{Numeric vector of candidate values for lambda2 (L1 penalty
-for xi parameter). Default provides a reasonable range.}
+\item{lambda2_vec}{Candidate values for Baseline Hazard Penalty.}
 
-\item{lambda_beta_vec}{Numeric vector of candidate values for lambda_beta
-(L1 penalty for beta_t parameter). Default includes zero for non-sparse option.}
+\item{lambda_beta_vec}{Candidate values for Global Sparsity.}
 
-\item{learning_rate}{Numeric. Learning rate for the optimization algorithm.
-Default is 0.004.}
+\item{learning_rate}{Learning rate (Default 0.01 for PGD).}
 
-\item{nsteps}{Integer. Maximum number of optimization steps. Default is 200.}
+\item{nsteps}{Optimization steps (Default 2000 for PGD).}
 
-\item{use_sparse}{Logical. Whether to use sparse implementation. Default is TRUE.}
+\item{use_sparse}{Logical. Always TRUE.}
 
-\item{parallel}{Logical. Whether to use parallel computation for grid search.
-Default is FALSE.}
+\item{parallel}{Logical. Enable parallel computing.}
 
-\item{verbose}{Logical. Whether to display detailed progress information.
-Default is TRUE.}
+\item{verbose}{Logical. Print progress.}
 
-\item{n_cores}{Integer. Number of cores for parallel computation. If NULL, detected automatically.}
-
-\item{threshold_c}{Numeric. Constant for theoretical hard thresholding (tau = C * sqrt(log(p)/n)).
-Default is 0.5.}
+\item{n_cores}{Integer. Number of cores.}
 }
 \value{
-A list containing the following components:
-\describe{
-\item{optimal_lambda1}{The optimal lambda1 value that minimizes BIC}
-\item{optimal_lambda2}{The optimal lambda2 value that minimizes BIC}
-\item{optimal_lambda_beta}{The optimal lambda_beta value that minimizes BIC}
-\item{min_bic}{The minimum BIC value achieved}
-\item{bic_matrix}{3D array of BIC values for all parameter combinations}
-\item{parameter_grid}{Data frame of all tested parameter combinations}
-\item{convergence_info}{Information about optimization convergence}
-}
+List of optimal parameters and model results.
 }
 \description{
-Performs Bayesian Information Criterion (BIC) based parameter selection for
-the sparse TransCox model. This function extends the original BIC selection
-to support three-dimensional parameter tuning including lambda_beta for
-target domain sparsity control.
-}
-\details{
-This function conducts a comprehensive grid search over three regularization
-parameters (lambda1, lambda2, lambda_beta) to find the optimal combination
-that minimizes the BIC. The search can be parallelized for computational
-efficiency when dealing with large parameter grids.
+Performs BIC-based parameter selection. Adapted for Proximal Gradient Descent:
+Lambda ranges are adjusted for normalized likelihood, and threshold_c is removed.
 }

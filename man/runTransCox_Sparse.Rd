@@ -2,7 +2,7 @@
 % Please edit documentation in R/runTransCox_Sparse.R
 \name{runTransCox_Sparse}
 \alias{runTransCox_Sparse}
-\title{Sparse TransCox Model for High-Dimensional Survival Analysis}
+\title{Sparse TransCox Model for High-Dimensional Survival Analysis (PGD Version)}
 \usage{
 runTransCox_Sparse(
   primData,
@@ -12,73 +12,51 @@ runTransCox_Sparse(
   lambda1 = NULL,
   lambda2 = NULL,
   lambda_beta = NULL,
-  learning_rate = 0.001,
-  nsteps = 500,
+  learning_rate = 0.01,
+  nsteps = 2000,
   auto_tune = TRUE,
   use_sparse = TRUE,
   verbose = TRUE,
-  tolerance = 1e-06,
-  early_stopping = TRUE,
-  adaptive_lr = TRUE,
+  tolerance = 1e-07,
   parallel = FALSE,
-  n_cores = NULL,
-  threshold_c = 0.5
+  n_cores = NULL
 )
 }
 \arguments{
-\item{primData}{A data.frame containing the target domain survival data. Must include
-survival time, event status, and covariates.}
+\item{primData}{Target domain data.frame (time, status, covariates).}
 
-\item{auxData}{A data.frame containing the source domain survival data with the same
-structure as primData.}
+\item{auxData}{Source domain data.frame.}
 
-\item{cov}{A character vector specifying the names of covariates to be used in the model.
-Default is c("X1", "X2").}
+\item{cov}{Character vector of covariate names.}
 
-\item{statusvar}{A character string specifying the name of the event status variable.
-Default is "status".}
+\item{statusvar}{Name of status variable.}
 
-\item{lambda1}{Numeric. L1 penalty parameter for eta (auxiliary parameter). If NULL,
-will be automatically selected via BIC. Default is NULL.}
+\item{lambda1}{Numeric. Penalty for Transfer (beta - beta_source). Scaled by 1/N_events.}
 
-\item{lambda2}{Numeric. L1 penalty parameter for xi (transfer parameter). If NULL,
-will be automatically selected via BIC. Default is NULL.}
+\item{lambda2}{Numeric. Penalty for Xi (Baseline Hazard deviation). Scaled by 1/N_events.}
 
-\item{lambda_beta}{Numeric. L1 penalty parameter for beta_t (target parameter). If NULL,
-will be automatically selected via BIC. Default is NULL.}
+\item{lambda_beta}{Numeric. Penalty for Global Sparsity (beta). Scaled by 1/N_events.}
 
-\item{learning_rate}{Numeric. Learning rate for the optimization algorithm. Default is 0.004.}
+\item{learning_rate}{Numeric. Step size for PGD. Default 0.01.}
 
-\item{nsteps}{Integer. Maximum number of optimization steps. Default is 200.}
+\item{nsteps}{Integer. Optimization steps. Default 2000.}
 
-\item{auto_tune}{Logical. Whether to automatically tune hyperparameters using BIC.
-Default is TRUE.}
+\item{auto_tune}{Logical. Whether to use BIC.}
 
-\item{use_sparse}{Logical. Deprecated parameter, kept for compatibility. This function
-ALWAYS runs in sparse mode. Default is TRUE.}
+\item{use_sparse}{Logical. Whether to use sparse implementation.}
 
-\item{verbose}{Logical. Whether to display detailed progress information. Default is TRUE.}
+\item{verbose}{Logical. Print progress.}
 
-\item{tolerance}{Numeric. Convergence tolerance for the optimization algorithm.
-Default is 1e-6.}
+\item{tolerance}{Numeric. Convergence tolerance.}
 
-\item{early_stopping}{Logical. Whether to enable early stopping mechanism. Default is TRUE.}
+\item{parallel}{Logical. Whether to run parameter tuning in parallel.}
 
-\item{adaptive_lr}{Logical. Whether to use adaptive learning rate. Default is TRUE.}
-
-\item{parallel}{Logical. Whether to use parallel computation for parameter search. Default is FALSE.}
-
-\item{n_cores}{Integer. Number of cores for parallel computation. If NULL, detected automatically.}
-
-\item{threshold_c}{Numeric. Constant for theoretical hard thresholding (tau = C * sqrt(log(p)/n)).
-Default is 0.5. Controls the post-hoc sparsity level.}
+\item{n_cores}{Integer. Number of cores for parallel processing.}
 }
 \value{
-A list containing the estimated coefficients and convergence information.
+List containing estimated coefficients and model details.
 }
 \description{
-This function implements the sparse TransCox model for high-dimensional survival analysis
-with transfer learning. It integrates source domain (auxiliary) data to improve prediction
-performance on the target domain (primary) data through regularized Cox regression with
-L1 penalties.
+This function implements the sparse TransCox model using Proximal Gradient Descent (PGD).
+It handles high-dimensional transfer learning with an ADDITIVE hazard model (JASA consistent).
 }
