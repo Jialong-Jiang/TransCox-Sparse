@@ -168,7 +168,8 @@ TransCoxSparse/
 │   ├── GetAuxSurv_Sparse.R                       # 🔄 Sparse Source Domain Analysis
 │   ├── GetBIC.R                                  # 📈 BIC Calculation Function
 │   ├── GetPrimaryParam.R                         # 🎯 Target Domain Parameter Estimation
-│   ├── runTransCox_Sparse.R                      # 🎯 Main Interface Function (
+│   ├── runTransCox_Sparse.R                      # 🎯 Selection Function 
+│   ├── runTransCox_TwoStage.R                    # 🎯 Main Interface Function 
 │   ├── SelParam_By_BIC_Sparse.R                  # 📊 Sparse Parameter Selection 
 │   └── zzz_imports.R                             # 📦 Package Imports & Global Variables
 │   └── ...
