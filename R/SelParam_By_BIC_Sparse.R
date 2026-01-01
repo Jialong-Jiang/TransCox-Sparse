@@ -6,7 +6,7 @@
 #' @return A numeric vector for fine search.
 #' @noRd
 generate_fine_search_vector <- function(best_value, coarse_vec) {
-  # [SCIENTIFIC FIX] Ensure vector is sorted to make neighbor logic valid
+  # Ensure vector is sorted to make neighbor logic valid
   coarse_vec <- sort(unique(coarse_vec))
 
   idx <- which.min(abs(coarse_vec - best_value))
@@ -53,8 +53,7 @@ generate_fine_search_vector <- function(best_value, coarse_vec) {
 #' @export
 SelParam_By_BIC_Sparse <- function(primData, auxData, cov = c("X1", "X2"),
                                    statusvar = "status",
-                                   # [SCIENTIFIC FIX] Adjusted ranges for Normalized Loss (1/N)
-                                   # Old range 5.0 is too large for normalized loss (~1.0)
+                                   # Adjusted ranges for Normalized Loss (1/N)
                                    lambda1_vec = c(0.01, 0.05, 0.1, 0.2, 0.5),
                                    lambda2_vec = c(0.001, 0.01, 0.05, 0.1),
                                    lambda_beta_vec = c(0.005, 0.01, 0.02, 0.05, 0.1, 0.2),
@@ -185,7 +184,7 @@ SelParam_By_BIC_Sparse <- function(primData, auxData, cov = c("X1", "X2"),
         stop("Non-sparse TransCox not supported in this version.")
       }
 
-      # [SCIENTIFIC FIX] Additive Hazard: h_new = h_old + xi
+      # Additive Hazard: h_new = h_old + xi
       newHaz <- data_pkg$hazards + xi
 
       if (any(is.na(eta)) || any(is.na(xi)) || any(is.na(newBeta))) {
