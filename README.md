@@ -93,7 +93,7 @@ library(Matrix)
 library(reticulate)
 
 # High-dimensional sparse data analysis
-result <- runTransCox_Sparse(
+result <- runTransCox_TwoStage(
     primData = your_target_data,
     auxData = your_source_data,
     cov = paste0("X", 1:500),  # 500 features
@@ -113,7 +113,7 @@ cat("Sparsity:", round(sparsity, 1), "%\n")
 
 ```r
 # Fully automated analysis
-result_auto <- runTransCox_Sparse(
+result_auto <- runTransCox_TwoStage(
     primData = primData,
     auxData = auxData,
     cov = feature_names,
