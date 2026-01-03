@@ -112,7 +112,7 @@ runTransCox_TwoStage <- function(primData, auxData, cov, statusvar,
 
   # Run standard CoxPH
   fmla <- as.formula(paste("Surv(time, ", statusvar, ") ~ ."))
-  fit_s2 <- tryCatch(coxph(fmla, data = refit_df), error = function(e) NULL)
+  fit_s2 <- tryCatch(coxph(fmla, data = refit_df, x = TRUE, y = TRUE), error = function(e) NULL)
 
   if(is.null(fit_s2)) {
     if(verbose) cat("!! [Error] CoxPH refit failed (singular matrix). Returning Stage 1 results.\n")
@@ -144,7 +144,8 @@ runTransCox_TwoStage <- function(primData, auxData, cov, statusvar,
   # Perform final Cox fit on the cleaned variable set to get pure coefficients and baseline hazard
   final_df <- cbind(primData[, c("time", statusvar)],
                     as.matrix(primData[, final_vars, drop=FALSE]))
-  fit_final <- coxph(as.formula(paste("Surv(time, ", statusvar, ") ~ .")), data = final_df)
+  fit_final <- coxph(as.formula(paste("Surv(time, ", statusvar, ") ~ .")),
+                     data = final_df, x = TRUE, y = TRUE)
 
   # 1. Reconstruct Beta (Map back to P-dimensional vector)
   final_beta_vec <- rep(0, length(cov))
