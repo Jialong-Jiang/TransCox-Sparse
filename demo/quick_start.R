@@ -34,20 +34,19 @@ my_seed <- 123
 set.seed(my_seed)
 if(exists("py_set_seed")) try(reticulate::py_set_seed(my_seed), silent=TRUE)
 
-# --- 3. Data Generation -----------------
-cat(">> Step 1: Generating Data (N=300, P=500)...\n")
-p <- 500; n_prim <- 300; n_aux <- 1000; n_test <- 300
+cat("=== Simulation Start ===\n")
+
+# --- 2. Data Generation ---
+cat(">> Step 1: Generating Data...\n")
+p <- 500; n_prim <- 250; n_aux <- 1000; n_test <- 300
 feature_names <- paste0("X", 1:p)
 
 # Truth
 beta_prim <- rep(0, p); beta_prim[1:10] <- 1.0; beta_prim[11:20] <- -1.0
-
 # Source
 beta_aux <- rep(0, p)
-beta_aux[1:10] <- 1.0 + rnorm(10, 0, 0.1)  # Group A: Consistent
-beta_aux[11:15] <- 1.0                     # Group B: Conflict
-beta_aux[16:20] <- 0                       # Group C: Missing
-beta_aux[21:25] <- 0.5                     # Group D: Source Noise (21-25)
+beta_aux[1:10] <- 1.0 + rnorm(10, 0, 0.1)
+beta_aux[11:15] <- 1.0; beta_aux[16:20] <- 0; beta_aux[21:25] <- 0.5
 beta_aux <- beta_aux + rnorm(p, 0, 0.02)
 
 gen_dat <- function(n, beta) {
@@ -73,7 +72,7 @@ prim_data <- prim_data_raw; prim_data[, feature_names] <- scale(X_prim)
 aux_data <- aux_data_raw;   aux_data[, feature_names] <- scale(X_aux)
 test_data <- test_data_raw; test_data[, feature_names] <- scale(X_test)
 
-# --- 4. Helper Functions -----------------------------------------------------
+# --- 3. Helper Functions ---
 
 # Helper for Lasso Cox Object
 coef_to_coxph <- function(coefs, train_data) {
@@ -104,15 +103,26 @@ eval_performance_extended <- function(coef_est, model_obj, name, test_data) {
     roc_res$AUC[[2]]
   }, error = function(e) NA)
 
-  # 2. IBS via PEC
+  eval_times <- sort(unique(test_data$time))
+
   pec_res <- tryCatch({
-    pec::pec(list("Model" = model_obj), formula = Surv(time, status) ~ 1, data = test_data, verbose = FALSE)
+    pec::pec(
+      object = list("Model" = model_obj),
+      formula = Surv(time, status) ~ 1,
+      data = test_data,
+      times = eval_times,
+      exact = FALSE,
+      reference = FALSE,
+      verbose = FALSE
+    )
   }, error = function(e) { warning(paste(name, "PEC Error:", e$message)); return(NULL) })
-  ibs_val <- if(!is.null(pec_res)) pec::crps(pec_res)[2] else NA
 
-  # 3. Coefficient Metrics (TPR, FPR, MCC)
-  threshold <- 1e-6 # Numerical threshold for "Active"
+  # Extract Integrated Brier Score
+  # Since reference=FALSE, the result is in the first column/element
+  ibs_val <- if(!is.null(pec_res)) pec::crps(pec_res, times = max(eval_times), start = min(eval_times))[1] else NA
 
+  # 3. Counts
+  threshold <- 1e-6
   true_active <- abs(beta_prim) > threshold
   est_active  <- abs(coef_est) > threshold
 
@@ -137,7 +147,7 @@ eval_performance_extended <- function(coef_est, model_obj, name, test_data) {
               Selected = sum(est_active), TPR = tpr, FPR = fpr))
 }
 
-# --- 5. Training Models ------------------------------------------------------
+# --- 4. Training ---
 
 cat("\n>> [Model 1] Lasso (Primary)...\n")
 cv_fit_prim <- cv.glmnet(as.matrix(prim_data[, feature_names]), Surv(prim_data$time, prim_data$status), family = "cox", alpha = 1)
@@ -162,7 +172,7 @@ coef_transcox <- final_res$new_beta
 fit_transcox <- final_res$fit_obj
 res_transcox <- eval_performance_extended(coef_transcox, fit_transcox, "TransCox", test_data)
 
-# --- 6. Export Results -------------------------------------------------------
+# --- 5. Export Results ---
 results_df <- rbind(as.data.frame(res_lasso_prim), as.data.frame(res_lasso_comb), as.data.frame(res_transcox))
 # Reorder for clarity
 results_df <- results_df[, c("Method", "C_index", "AUC_Median", "IBS", "MSE", "F1", "MCC", "Selected", "TPR", "FPR")]
@@ -181,14 +191,14 @@ group_summary <- data.frame(
 print(knitr::kable(group_summary, digits = 3))
 write.csv(group_summary, file = paste0(save_dir, "coef_group_summary.csv"), row.names = FALSE)
 
+# --- 6. Plots ---
 
-# --- 7. Visualization --------------------------------------------------------
-
-# 7.1 KM Curves
+# [FIXED] Merged KM Plot (Use plot_df)
 get_km <- function(coefs, title) {
   rs <- as.vector(as.matrix(test_data[,feature_names]) %*% coefs)
   if(var(rs)<1e-9) rs <- rnorm(length(rs))
   grp <- ifelse(rs > median(rs), "High", "Low")
+
 
   plot_df <- data.frame(time = test_data$time, status = test_data$status,
                         grp = factor(grp, levels = c("Low", "High")))
@@ -211,10 +221,10 @@ p3 <- get_km(coef_transcox, "TransCox")
 pdf(paste0(save_dir, "Merged_KM_Curves.pdf"), width = 18, height = 6, onefile = FALSE)
 arrange_ggsurvplots(list(p1, p2, p3), ncol = 3, nrow = 1)
 dev.off()
-cat(">> Saved Merged KM Curves (Whitespace Fixed).\n")
+cat(">> Saved Merged KM Curves.\n")
 
-# 7.2 Lollipop Plot (Updated for 5 Noise Vars)
-plot_indices <- 1:25 # 20 Active + 5 Noise
+# Lollipop Plot (Updated for 5 Noise Vars)
+plot_indices <- 1:25
 plot_data <- data.frame(
   Index = rep(plot_indices, 4),
   Value = c(beta_prim[plot_indices], coef_lasso_prim[plot_indices],
@@ -222,103 +232,79 @@ plot_data <- data.frame(
   Method = factor(rep(c("Truth", "Lasso (Prim)", "Lasso (Comb)", "TransCox"), each=length(plot_indices)),
                   levels = c("Truth", "Lasso (Prim)", "Lasso (Comb)", "TransCox"))
 )
-
 p_coef <- ggplot(plot_data, aes(x = Index, y = Value, color = Method)) +
   geom_hline(yintercept = 0, linetype = "dashed", color = "gray60") +
   geom_point(position = position_dodge(width = 0.7), size = 2) +
   geom_linerange(aes(ymin = 0, ymax = Value), position = position_dodge(width = 0.7)) +
-
   annotate("rect", xmin=0.5, xmax=10.5, ymin=-Inf, ymax=Inf, alpha=0.1, fill="green") +
   annotate("text", x=5.5, y=1.4, label="A: Consistent", size=3, fontface="bold") +
-
   annotate("rect", xmin=10.5, xmax=15.5, ymin=-Inf, ymax=Inf, alpha=0.1, fill="red") +
   annotate("text", x=13, y=1.4, label="B: Conflict", size=3, fontface="bold") +
-
   annotate("rect", xmin=15.5, xmax=20.5, ymin=-Inf, ymax=Inf, alpha=0.1, fill="blue") +
   annotate("text", x=18, y=1.4, label="C: Missing", size=3, fontface="bold") +
-
   annotate("rect", xmin=20.5, xmax=25.5, ymin=-Inf, ymax=Inf, alpha=0.1, fill="gray") +
   annotate("text", x=23, y=1.4, label="D: Noise", size=3, fontface="bold") +
-
   scale_color_manual(values = c("black", "gray", "blue", "red")) +
-  labs(title = "Coefficient Recovery (Groups A, B, C, D)", y = "Coefficient Value", x = "Variable Index") +
+  labs(title = "Coefficient Recovery", y = "Coefficient Value", x = "Variable Index") +
   theme_bw() + theme(legend.position = "bottom")
-
 ggsave(paste0(save_dir, "Coefficient_Lollipop.pdf"), plot = p_coef, width = 16, height = 6)
 cat(">> Saved Coefficient Lollipop Plot.\n")
 
-# 7.3 Feature Selection Composition Plot (Strict Template)
+# [UPDATED] Feature Selection Composition Plot (Template Style)
 cat("\n>> Generating Feature Selection Composition Plot...\n")
 
-# 1. Define true active variable count
+# 1. Data Prep
 n_active_truth <- 20
 
-# 2. Data Preparation
 get_counts <- function(coef_vec, method_name) {
   est_act <- abs(coef_vec) > 1e-6
   true_act <- abs(beta_prim) > 1e-6
-
   tp <- sum(est_act & true_act)
-  fp <- sum(est_act & !true_act) # Noise
-
-  return(data.frame(Method = method_name,
-                    True_Positives = tp,
-                    False_Positives = fp))
+  fp <- sum(est_act & !true_act)
+  return(data.frame(Method = method_name, True_Positives = tp, False_Positives = fp))
 }
 
-# Construct plotting data (Method names must match Step 4)
 plot_data_comp <- rbind(
   get_counts(coef_lasso_prim, "Lasso (Primary)"),
   get_counts(coef_lasso_comb, "Lasso (Combined)"),
   get_counts(coef_transcox, "TransCox")
 )
 
-# Convert to Long Format (requires tidyr)
-plot_data_long <- data.frame(
-  Method = rep(plot_data_comp$Method, 2),
-  Count = c(plot_data_comp$False_Positives, plot_data_comp$True_Positives),
-  Variable_Type = rep(c("Noise Variables (FP)", "True Active Variables (TP)"), each=nrow(plot_data_comp))
-)
+plot_data_long <- plot_data_comp %>%
+  pivot_longer(cols = c("True_Positives", "False_Positives"),
+               names_to = "Variable_Type", values_to = "Count")
 
-# [CRITICAL] Enforce factor order for plotting stability
 target_levels <- c("Lasso (Primary)", "Lasso (Combined)", "TransCox")
 plot_data_long$Method <- factor(plot_data_long$Method, levels = target_levels)
 plot_data_long$Variable_Type <- factor(plot_data_long$Variable_Type,
-                                       levels = c("Noise Variables (FP)", "True Active Variables (TP)"))
+                                       levels = c("False_Positives", "True_Positives"),
+                                       labels = c("Noise Variables (FP)", "True Active Variables (TP)"))
 
-# 3. Annotation Data
-# Ensure anno_data matches target levels and order
+# 2. Annotation Data
 anno_data <- results_df %>%
+  mutate(Method = case_when(
+    Method == "TransCox (Two-Stage)" ~ "TransCox",
+    TRUE ~ as.character(Method)
+  )) %>%
   filter(Method %in% target_levels) %>%
   select(Method, MCC, TPR, FPR, Selected) %>%
   mutate(Label = sprintf("MCC: %.2f\nTPR: %.2f\nFPR: %.2f", MCC, TPR, FPR))
 
 anno_data$Method <- factor(anno_data$Method, levels = target_levels)
 
-# 4. Plotting (Composition Template)
+# 3. Plotting
 p_comp <- ggplot(plot_data_long, aes(x = Method, y = Count, fill = Variable_Type)) +
-  # Draw bar chart
-  geom_col(width = 0.55, alpha = 0.9, color = "black") +
-
+  geom_col(width = 0.55, alpha = 0.9, color = "black", size = 0.3) +
   geom_hline(yintercept = n_active_truth, linetype = "longdash", color = "#333333", size = 0.8) +
-
-  scale_fill_manual(values = c("Noise Variables (FP)" = "#D95F5F",
-                               "True Active Variables (TP)" = "#34678C")) +
-
+  scale_fill_manual(values = c("Noise Variables (FP)" = "#D95F5F", "True Active Variables (TP)" = "#34678C")) +
   scale_y_continuous(
-    expand = expansion(mult = c(0, 0.3)), # Reserve space at top
+    expand = expansion(mult = c(0, 0.3)),
     sec.axis = sec_axis(~ ., breaks = n_active_truth, labels = paste0("True Size(", n_active_truth, ")"))
   ) +
-
   geom_text(data = anno_data,
             aes(x = Method, y = Selected + 3, label = Label, fill = NULL),
             vjust = 0, size = 3.2, lineheight = 0.9, color = "black") +
-
-  labs(title = "Feature Selection Composition",
-       y = "Number of Selected Features",
-       x = "",
-       fill = "Feature Type") +
-
+  labs(title = "Feature Selection Composition", y = "Number of Selected Features", x = "", fill = "Feature Type") +
   theme_bw() +
   theme(
     legend.position = "top",
@@ -326,26 +312,23 @@ p_comp <- ggplot(plot_data_long, aes(x = Method, y = Count, fill = Variable_Type
     legend.text = element_text(size = 9),
     legend.background = element_rect(fill = "transparent"),
     plot.title = element_text(hjust = 0.5, face = "bold", size = 14),
-
     axis.text.x = element_text(size = 11, color = "black", face = "bold"),
     axis.text.y = element_text(size = 10, color = "black"),
     axis.title.y = element_text(size = 11, face = "bold", margin = margin(r = 10)),
-
     axis.text.y.right = element_text(color = "#333333", face = "bold.italic", size = 10),
     axis.ticks.y.right = element_line(color = "#333333"),
-
     panel.grid.major.x = element_blank(),
     panel.grid.minor.x = element_blank(),
     panel.grid.major.y = element_line(color = "#E5E5E5"),
     panel.grid.minor.y = element_blank(),
     panel.border = element_rect(color = "black", size = 0.8)
   ) +
-
   geom_text(aes(label = round(Count, 1), color = Variable_Type),
             position = position_stack(vjust = 0.5),
             size = 3.5, fontface = "bold", show.legend = FALSE) +
-  scale_color_manual(values = c("Noise Variables (FP)" = "white",
-                                "True Active Variables (TP)" = "white"))
+  scale_color_manual(values = c("Noise Variables (FP)" = "white", "True Active Variables (TP)" = "white"))
 
 ggsave(paste0(save_dir, "Feature_Selection_Composition.pdf"), plot = p_comp, width = 8, height = 6)
 cat(">> Saved Feature Selection Composition Plot (Template Corrected).\n")
+
+cat("\n=== DEMO COMPLETED SUCCESSFULLY ===\n")
