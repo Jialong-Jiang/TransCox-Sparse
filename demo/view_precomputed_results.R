@@ -55,7 +55,7 @@ if (dir.exists(quick_start_dir)) {
   # 2. Open Plots
   cat("\n>> Opening Visualizations...\n")
   open_file(file.path(quick_start_dir, "Merged_KM_Curves.pdf"), "KM Curves")
-  open_file(file.path(quick_start_dir, "Coefficient_Comparison.pdf"), "Coefficients")
+  open_file(file.path(quick_start_dir, "Feature_Selection_Composition.pdf"), "Coefficients")
 
 } else {
   cat(">> Warning: Quick Start directory not found.\n")

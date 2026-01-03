@@ -41,148 +41,69 @@
 #' @export
 runTransCox_TwoStage <- function(primData, auxData, cov, statusvar,
                                  p_value_threshold = 0.05,
-                                 lambda1 = NULL,
-                                 lambda2 = NULL,
-                                 lambda_beta = NULL,
-                                 learning_rate = 0.001,
-                                 nsteps = 5000,
-                                 tolerance = 1e-7,
-                                 parallel = FALSE,
-                                 n_cores = NULL,
-                                 verbose = FALSE,
-                                 auto_tune = TRUE) {
+                                 lambda1 = NULL, lambda2 = NULL, lambda_beta = NULL,
+                                 learning_rate = 0.001, nsteps = 5000,
+                                 tolerance = 1e-7, parallel = FALSE, n_cores = NULL,
+                                 verbose = FALSE, auto_tune = TRUE) {
 
-  # --- Stage 1: Screening (Variable Selection) ---
-  if(verbose) cat(">> [Stage 1] Running TransCox Lasso...\n")
-
-  # Force auto_tune = FALSE to strictly control parameters
-  # Force use_sparse = TRUE for variable selection
+  if(verbose) cat(">> [Stage 1] Screening...\n")
   res_stage1 <- runTransCox_Sparse(
-    primData = primData,
-    auxData = auxData,
-    cov = cov,
-    statusvar = statusvar,
-    lambda1 = lambda1,
-    lambda2 = lambda2,
-    lambda_beta = lambda_beta,
-    learning_rate = learning_rate,
-    nsteps = nsteps,
-    tolerance = tolerance,
-    parallel = parallel,
-    n_cores = n_cores,
-    auto_tune = auto_tune,
-    use_sparse = TRUE,
-    verbose = verbose
+    primData = primData, auxData = auxData, cov = cov, statusvar = statusvar,
+    lambda1 = lambda1, lambda2 = lambda2, lambda_beta = lambda_beta,
+    learning_rate = learning_rate, nsteps = nsteps, tolerance = tolerance,
+    parallel = parallel, n_cores = n_cores, auto_tune = auto_tune,
+    use_sparse = TRUE, verbose = verbose
   )
-
-  # Extract Stage 1 coefficients
   beta_s1 <- as.vector(res_stage1$new_beta)
-
-  # Use numerical tolerance for truncation instead of heuristic cutoff
   selected_idx <- which(abs(beta_s1) > 1e-6)
   selected_vars <- cov[selected_idx]
-
   n_selected <- length(selected_vars)
   n_samples <- nrow(primData)
-
-  # --- Failsafe: Dimensionality Check ---
-  # Assessment: If selected variables > sample size, CoxPH cannot run.
-  # Strategy: Apply Top-K truncation to ensure model identifiability.
-  # Using N/2 as a conservative safety limit to preserve degrees of freedom.
   safe_limit <- floor(n_samples / 2)
 
-  if (n_selected == 0) {
-    if(verbose) cat("!! [Warning] No variables selected in Stage 1. Returning NULL model.\n")
-    return(res_stage1) # Cannot refit, return original result
-  }
+  clean_return <- function(res) { res$eta <- NULL; res$xi <- NULL; return(res) }
 
+  if (n_selected == 0) return(clean_return(res_stage1))
   if (n_selected > safe_limit) {
-    if(verbose) cat(sprintf("!! [Warning] Selected %d vars, exceeding safety limit (%d). Applying Top-K truncation.\n", n_selected, safe_limit))
-    # Sort by absolute magnitude and keep the top safe_limit variables
     ord <- order(abs(beta_s1[selected_idx]), decreasing = TRUE)
     selected_vars <- selected_vars[ord[1:safe_limit]]
   }
 
-  # --- Stage 2: Unpenalized Refitting (Intermediate) ---
-  if(verbose) cat(sprintf(">> [Stage 2] Refitting CoxPH with %d variables...\n", length(selected_vars)))
-
-  # Construct refitting dataset
-  refit_df <- cbind(primData[, c("time", statusvar)],
-                    as.matrix(primData[, selected_vars, drop=FALSE]))
-
-  # Run standard CoxPH
+  if(verbose) cat(">> [Stage 2] Refitting...\n")
+  refit_df <- cbind(primData[, c("time", statusvar)], as.matrix(primData[, selected_vars, drop=FALSE]))
   fmla <- as.formula(paste("Surv(time, ", statusvar, ") ~ ."))
+  # [FIX 1] Added x=TRUE, y=TRUE
   fit_s2 <- tryCatch(coxph(fmla, data = refit_df, x = TRUE, y = TRUE), error = function(e) NULL)
 
-  if(is.null(fit_s2)) {
-    if(verbose) cat("!! [Error] CoxPH refit failed (singular matrix). Returning Stage 1 results.\n")
-    return(res_stage1)
-  }
+  if(is.null(fit_s2)) return(clean_return(res_stage1))
 
-  # --- Stage 3: P-value Filtering ---
   summ <- summary(fit_s2)
-
-  # Extract P-values (Handle potential backticks in variable names)
-  coef_mat <- summ$coefficients
-  pvals <- coef_mat[, "Pr(>|z|)"]
-  raw_names <- rownames(coef_mat)
-  clean_names <- gsub("`", "", raw_names)
-
-  # Filter variables where P < threshold
+  pvals <- summ$coefficients[, "Pr(>|z|)"]
+  clean_names <- gsub("`", "", rownames(summ$coefficients))
   final_vars <- clean_names[pvals < p_value_threshold]
 
-  if(verbose) cat(sprintf(">> [Stage 3] P-value filtering: %d -> %d variables.\n", length(selected_vars), length(final_vars)))
-
-  # If no variables remain after filtering, return an empty model structure
   if(length(final_vars) == 0) {
-    res_empty <- res_stage1
-    res_empty$new_beta <- rep(0, length(cov)) # All zeros
-    return(res_empty)
+    res_empty <- res_stage1; res_empty$new_beta <- rep(0, length(cov))
+    return(clean_return(res_empty))
   }
 
-  # --- Stage 4: Final Estimation & Reconstruction ---
-  # Perform final Cox fit on the cleaned variable set to get pure coefficients and baseline hazard
-  final_df <- cbind(primData[, c("time", statusvar)],
-                    as.matrix(primData[, final_vars, drop=FALSE]))
+  final_df <- cbind(primData[, c("time", statusvar)], as.matrix(primData[, final_vars, drop=FALSE]))
+  # [FIX 2] Added x=TRUE, y=TRUE
   fit_final <- coxph(as.formula(paste("Surv(time, ", statusvar, ") ~ .")),
                      data = final_df, x = TRUE, y = TRUE)
 
-  # 1. Reconstruct Beta (Map back to P-dimensional vector)
   final_beta_vec <- rep(0, length(cov))
   final_coefs <- coef(fit_final)
   final_names <- gsub("`", "", names(final_coefs))
-
   for(k in 1:length(final_names)) {
-    var_name <- final_names[k]
-    idx <- which(cov == var_name)
-    if(length(idx) > 0) {
-      final_beta_vec[idx] <- final_coefs[k]
-    }
+    idx <- which(cov == final_names[k])
+    if(length(idx) > 0) final_beta_vec[idx] <- final_coefs[k]
   }
 
-  # 2. Re-calculate Baseline Hazard (new_IntH)
-  # TransCox output format requires data.frame(time, cumQ_upd)
-  # Use Breslow estimator via basehaz (centered=FALSE matches raw coefficients)
   bh <- basehaz(fit_final, centered = FALSE)
-  new_IntH <- data.frame(
-    time = bh$time,
-    cumQ_upd = bh$hazard
-  )
+  new_IntH <- data.frame(time = bh$time, cumQ_upd = bh$hazard)
 
-  # --- Construct Final Output Object ---
-  # Maintain structural compatibility with runTransCox_Sparse
-  res_final <- list(
-    new_beta = final_beta_vec,   # New unbiased coefficients
-    new_IntH = new_IntH,         # New baseline hazard
-
-    # Parameters from PGD optimization are invalid after refitting,eta = NULL,xi = NULL
-    # Additional info for diagnostics
-    eta = NULL,
-    xi = NULL,
-    stage1_vars = selected_vars,
-    final_vars = final_vars,
-    fit_obj = fit_final          # Return coxph object for summary() access
-  )
-
-  return(res_final)
+  return(list(new_beta = final_beta_vec, new_IntH = new_IntH,
+              stage1_vars = selected_vars, final_vars = final_vars,
+              fit_obj = fit_final))
 }
