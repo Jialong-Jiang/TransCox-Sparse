@@ -44,11 +44,11 @@ def TransCox_Sparse(CovData, cumH, hazards, status, estR, Xinn,
     xi = tf.Variable(tf.zeros(n_hazards, dtype=dtype), name="xi")
 
     # --- 2. Proximal Operators ---
-    @tf.function(jit_compile=True)
+    @tf.function
     def soft_threshold(x, lam):
         return tf.math.sign(x) * tf.maximum(tf.math.abs(x) - lam, 0.0)
 
-    @tf.function(jit_compile=True)
+    @tf.function
     def proximal_double_l1(u, center, lam_transfer, lam_sparsity):
         diff = u - center
         z = soft_threshold(diff, lam_transfer) + center
@@ -56,7 +56,7 @@ def TransCox_Sparse(CovData, cumH, hazards, status, estR, Xinn,
         return final
 
     # --- 3. Gradient Calculation ---
-    @tf.function(jit_compile=True)
+    @tf.function
     def compute_gradients_and_loss():
         with tf.GradientTape() as tape:
             
